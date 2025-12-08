@@ -1,6 +1,6 @@
 module github.com/jtzemp/dogfetch
 
-go 1.25
+go 1.23
 
 require (
 	github.com/DataDog/datadog-api-client-go/v2 v2.50.0

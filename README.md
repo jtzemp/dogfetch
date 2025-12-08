@@ -1,6 +1,20 @@
+![Cartoon dog chomping on a log.](dogfetch-logo.png "dogfetch logo")
+
 # dogfetch
 
-A CLI tool for fetching logs from Datadog. Ruff.
+Getting [Datadog logs](https://docs.datadoghq.com/logs/) to your machine is ruff. If you're a lazy mutt like 
+me, use **dogfetch**. Woof!
+
+## Quick start
+
+```bash
+export DD_API_KEY=your_api_key
+export DD_APP_KEY=your_app_key
+
+dogfetch --query 'service:web status:error' \
+  --from '2024-01-01T00:00:00Z' \
+  --to '2024-01-02T00:00:00Z' | jq -r '.attributes.message'
+```
 
 ## Features
 
@@ -51,16 +65,10 @@ make build
 make build-all
 ```
 
-The version is derived from git tags. To create a release:
-
-```bash
-git tag -a v1.0.0 -m "Release v1.0.0"
-make build
-```
-
 ## Prerequisites
 
-You need a Datadog API key and Application key. Set them as environment variables:
+You need a [Datadog API key and Application key](https://docs.datadoghq.com/account_management/api-app-keys/).
+Set them as environment variables:
 
 ```bash
 export DD_API_KEY=your_api_key
@@ -154,7 +162,8 @@ dogfetch --query 'service:api' | jq -r '.attributes.message'
 
 #### Resume After Interruption
 
-If a large fetch is interrupted, you can resume from where it left off. The cursor value is printed to stderr when the fetch stops:
+If a large fetch is interrupted, you can resume from where it left off. The cursor value is printed to stderr 
+when the fetch stops:
 
 ```bash
 # First attempt (gets interrupted)
@@ -169,7 +178,10 @@ dogfetch --query 'service:web' \
   --append
 ```
 
-**Why manual checkpointing?** The Datadog SDK provides automatic pagination helpers, but they don't expose the cursor or allow resuming from a specific point. By managing pagination manually, we can print the cursor after each page and allow you to resume long-running fetches if they're interrupted by network issues, rate limits, or system shutdowns. This is particularly useful for large exports that may take hours.
+**Why manual checkpointing?** The Datadog SDK provides automatic pagination helpers, but they don't expose 
+the cursor or allow resuming from a specific point. By managing pagination manually, we can print the cursor
+after each page and allow you to resume long-running fetches if they're interrupted by network issues, rate 
+limits, or system shutdowns. This is particularly useful for large exports that may take hours.
 
 #### Query Multiple Indexes
 
@@ -240,7 +252,8 @@ Outputs a single JSON object with all logs in an array:
 }
 ```
 
-This format buffers all logs in memory before writing. Use for smaller datasets or when you need the metadata wrapper.
+This format buffers all logs in memory before writing. Use for smaller datasets or when you need the 
+metadata wrapper.
 
 ## Architecture
 

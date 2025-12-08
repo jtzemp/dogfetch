@@ -2,7 +2,6 @@ package writer
 
 import (
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
@@ -37,21 +36,4 @@ func New(format, path string, append bool) (Writer, error) {
 	default:
 		return nil, fmt.Errorf("unsupported format: %s", format)
 	}
-}
-
-// getWriter returns an io.WriteCloser for the given path
-// Returns stdout if path is empty
-func getWriter(path string, append bool) (io.WriteCloser, error) {
-	if path == "" {
-		return os.Stdout, nil
-	}
-
-	flags := os.O_CREATE | os.O_WRONLY
-	if append {
-		flags |= os.O_APPEND
-	} else {
-		flags |= os.O_TRUNC
-	}
-
-	return os.OpenFile(path, flags, 0644)
 }

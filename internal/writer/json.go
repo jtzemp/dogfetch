@@ -15,7 +15,6 @@ type JSONWriter struct {
 	logs        []datadogV2.Log
 	pageCount   int
 	shouldClose bool
-	closer      io.Closer
 }
 
 // NewJSONWriter creates a new JSON writer for a file

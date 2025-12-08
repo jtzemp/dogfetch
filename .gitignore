@@ -1,0 +1,28 @@
+# Binaries
+dogfetch
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output files
+*.json
+*.ndjson
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

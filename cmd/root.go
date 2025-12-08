@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"syscall"
 
 	"github.com/jtzemp/dogfetch/internal/config"
 	"github.com/jtzemp/dogfetch/internal/fetcher"
@@ -107,7 +106,8 @@ func Execute() {
 	defer cancel()
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	// os.Interrupt works on both Unix and Windows (Ctrl+C)
+	signal.Notify(sigChan, os.Interrupt)
 
 	go func() {
 		<-sigChan

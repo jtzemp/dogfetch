@@ -9,6 +9,7 @@ A simple, efficient CLI tool for fetching logs from Datadog.
 - **Memory efficient streaming** - NDJSON mode streams results to disk with minimal memory usage
 - **Pagination checkpoint/resume** - Save progress and resume from where you left off if interrupted
 - **Configurable time ranges** - Query logs from specific time windows
+- **Cross-platform** - Works on Linux, macOS, and Windows
 
 ## Installation
 
@@ -246,7 +247,7 @@ This format buffers all logs in memory before writing. Use for smaller datasets 
 - **Transient errors** (network timeouts, 5xx): Exponential backoff retry (3 attempts)
 - **Rate limits** (429): Extended backoff based on Retry-After header
 - **Permanent errors** (400, 401, 403): Fail immediately with clear message
-- **Context cancellation** (Ctrl+C): Graceful shutdown, print current cursor
+- **Context cancellation** (Ctrl+C): Graceful shutdown, print current cursor (works on Windows, macOS, and Linux)
 
 ## Contributing
 

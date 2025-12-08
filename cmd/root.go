@@ -9,11 +9,13 @@ import (
 
 	"github.com/jtzemp/dogfetch/internal/config"
 	"github.com/jtzemp/dogfetch/internal/fetcher"
+	"github.com/jtzemp/dogfetch/internal/version"
 )
 
 // Execute runs the CLI
 func Execute() {
 	// Define flags
+	versionFlag := flag.Bool("version", false, "Print version information")
 	query := flag.String("query", "", "The filter query (search term)")
 	index := flag.String("index", "main", "Which index to read from")
 	from := flag.String("from", "", "Start date/time (default: 24 hours ago)")
@@ -29,7 +31,8 @@ func Execute() {
 		fmt.Fprintf(os.Stderr, "dogfetch - Fetch logs from Datadog\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n")
 		fmt.Fprintf(os.Stderr, "  dogfetch --query 'service:web status:error'\n")
-		fmt.Fprintf(os.Stderr, "  dogfetch --query 'service:web' --output logs.ndjson\n\n")
+		fmt.Fprintf(os.Stderr, "  dogfetch --query 'service:web' --output logs.ndjson\n")
+		fmt.Fprintf(os.Stderr, "  dogfetch --version\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment Variables:\n")
@@ -39,6 +42,12 @@ func Execute() {
 	}
 
 	flag.Parse()
+
+	// Handle version flag
+	if *versionFlag {
+		fmt.Println(version.Info())
+		os.Exit(0)
+	}
 
 	// Setup error output
 	errOut := os.Stderr

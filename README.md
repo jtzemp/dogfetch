@@ -1,6 +1,6 @@
 # dogfetch
 
-A simple, efficient CLI tool for fetching logs from Datadog.
+A CLI tool for fetching logs from Datadog. Ruff.
 
 ## Features
 
@@ -22,7 +22,34 @@ Or build from source:
 ```bash
 git clone https://github.com/jtzemp/dogfetch
 cd dogfetch
+
+# Simple build
 go build -o dogfetch
+
+# Or use make for versioned build
+make build
+```
+
+### Building with Version Information
+
+The Makefile automatically injects version information from git:
+
+```bash
+# Build with version info
+make build
+
+# Check version
+./dogfetch --version
+
+# Build for all platforms
+make build-all
+```
+
+The version is derived from git tags. To create a release:
+
+```bash
+git tag -a v1.0.0 -m "Release v1.0.0"
+make build
 ```
 
 ## Prerequisites

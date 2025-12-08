@@ -3,9 +3,11 @@ package fetcher
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestClassifyError(t *testing.T) {
@@ -89,15 +91,12 @@ func TestClassifyError(t *testing.T) {
 			got := ClassifyError(tt.err, tt.httpResp)
 
 			if tt.err == nil {
-				if got != nil {
-					t.Errorf("ClassifyError() expected nil for nil error")
-				}
+				assert.Nil(t, got)
 				return
 			}
 
-			if got.Retryable != tt.wantRetryable {
-				t.Errorf("ClassifyError().Retryable = %v, want %v", got.Retryable, tt.wantRetryable)
-			}
+			require.NotNil(t, got)
+			assert.Equal(t, tt.wantRetryable, got.Retryable)
 		})
 	}
 }
@@ -135,9 +134,7 @@ func TestParseRetryAfter(t *testing.T) {
 			}
 
 			got := parseRetryAfter(resp)
-			if got != tt.want {
-				t.Errorf("parseRetryAfter() = %v, want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -145,21 +142,18 @@ func TestParseRetryAfter(t *testing.T) {
 func TestExponentialBackoff(t *testing.T) {
 	tests := []struct {
 		attempt int
-		min     time.Duration
-		max     time.Duration
+		want    time.Duration
 	}{
-		{attempt: 0, min: 1 * time.Second, max: 1 * time.Second},
-		{attempt: 1, min: 2 * time.Second, max: 2 * time.Second},
-		{attempt: 2, min: 4 * time.Second, max: 4 * time.Second},
-		{attempt: 3, min: 8 * time.Second, max: 8 * time.Second},
+		{attempt: 0, want: 1 * time.Second},
+		{attempt: 1, want: 2 * time.Second},
+		{attempt: 2, want: 4 * time.Second},
+		{attempt: 3, want: 8 * time.Second},
 	}
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
 			got := ExponentialBackoff(tt.attempt)
-			if got < tt.min || got > tt.max {
-				t.Errorf("ExponentialBackoff(%d) = %v, want between %v and %v", tt.attempt, got, tt.min, tt.max)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -233,12 +227,10 @@ func TestShouldRetry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotRetry, gotBackoff := ShouldRetry(tt.attempt, tt.err)
 
-			if gotRetry != tt.wantRetry {
-				t.Errorf("ShouldRetry() retry = %v, want %v", gotRetry, tt.wantRetry)
-			}
+			assert.Equal(t, tt.wantRetry, gotRetry)
 
-			if tt.wantBackoff && gotBackoff == 0 {
-				t.Errorf("ShouldRetry() backoff = 0, want > 0")
+			if tt.wantBackoff {
+				assert.Greater(t, gotBackoff, time.Duration(0))
 			}
 		})
 	}
@@ -286,15 +278,8 @@ func TestFormatRetryError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := FormatRetryError(tt.err, tt.httpResp)
-			if got == nil {
-				t.Fatal("FormatRetryError() returned nil")
-			}
-
-			gotMsg := got.Error()
-			if !strings.Contains(gotMsg, tt.wantMsg) {
-				t.Errorf("FormatRetryError() = %q, want to contain %q", gotMsg, tt.wantMsg)
-			}
+			require.NotNil(t, got)
+			assert.Contains(t, got.Error(), tt.wantMsg)
 		})
 	}
 }
-

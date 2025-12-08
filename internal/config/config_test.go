@@ -3,6 +3,9 @@ package config
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseTime(t *testing.T) {
@@ -38,12 +41,15 @@ func TestParseTime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ParseTime(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseTime() error = %v, wantErr %v", err, tt.wantErr)
-				return
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
 			}
-			if tt.wantEmpty && !got.IsZero() {
-				t.Errorf("ParseTime() expected zero time, got %v", got)
+
+			if tt.wantEmpty {
+				assert.True(t, got.IsZero())
 			}
 		})
 	}
@@ -52,27 +58,18 @@ func TestParseTime(t *testing.T) {
 func TestParseTimeRFC3339(t *testing.T) {
 	input := "2024-01-01T00:00:00Z"
 	got, err := ParseTime(input)
-	if err != nil {
-		t.Fatalf("ParseTime() unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	expected := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	if !got.Equal(expected) {
-		t.Errorf("ParseTime() = %v, want %v", got, expected)
-	}
+	assert.Equal(t, got, expected)
 }
 
 func TestParseTimeUnix(t *testing.T) {
-	input := "1704067200" // 2024-01-01T00:00:00Z
-	got, err := ParseTime(input)
-	if err != nil {
-		t.Fatalf("ParseTime() unexpected error: %v", err)
-	}
-
-	expected := time.Unix(1704067200, 0)
-	if !got.Equal(expected) {
-		t.Errorf("ParseTime() = %v, want %v", got, expected)
-	}
+	got := "1704067200" // 2024-01-01T00:00:00Z
+	actualTime, err := ParseTime(got)
+	require.NoError(t, err)
+	want := time.Unix(1704067200, 0)
+	assert.Equal(t, actualTime, want)
 }
 
 func TestValidate(t *testing.T) {
@@ -209,14 +206,12 @@ func TestValidate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.wantErr && err != nil && tt.errMsg != "" {
-				if !contains(err.Error(), tt.errMsg) {
-					t.Errorf("Validate() error = %v, want error containing %q", err, tt.errMsg)
-				}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg, "error message mismatch")
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}
@@ -231,20 +226,6 @@ func TestDefaultFrom(t *testing.T) {
 	expectedBefore := before.Add(-24 * time.Hour)
 	expectedAfter := after.Add(-24 * time.Hour)
 
-	if got.Before(expectedBefore.Add(-time.Second)) || got.After(expectedAfter.Add(time.Second)) {
-		t.Errorf("DefaultFrom() = %v, expected around 24 hours ago", got)
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	assert.False(t, got.Before(expectedBefore.Add(-time.Second)))
+	assert.False(t, got.After(expectedAfter.Add(time.Second)))
 }

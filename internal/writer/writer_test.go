@@ -8,43 +8,31 @@ import (
 	"testing"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNDJSONWriterWithOutput(t *testing.T) {
 	var buf bytes.Buffer
 	w, err := NewNDJSONWriterWithOutput(&buf)
-	if err != nil {
-		t.Fatalf("NewNDJSONWriterWithOutput() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create test logs
 	logs := createTestLogs(3)
 
 	// Write logs
-	if err := w.WritePage(logs); err != nil {
-		t.Fatalf("WritePage() error = %v", err)
-	}
-
-	if err := w.Finalize(); err != nil {
-		t.Fatalf("Finalize() error = %v", err)
-	}
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, w.WritePage(logs))
+	require.NoError(t, w.Finalize())
+	require.NoError(t, w.Close())
 
 	// Verify output
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if len(lines) != 3 {
-		t.Errorf("Expected 3 lines, got %d", len(lines))
-	}
+	assert.Len(t, lines, 3)
 
 	// Verify each line is valid JSON
 	for i, line := range lines {
 		var log datadogV2.Log
-		if err := json.Unmarshal([]byte(line), &log); err != nil {
-			t.Errorf("Line %d is not valid JSON: %v", i, err)
-		}
+		assert.NoError(t, json.Unmarshal([]byte(line), &log), "Line %d should be valid JSON", i)
 	}
 }
 
@@ -53,29 +41,18 @@ func TestNDJSONWriterWithFile(t *testing.T) {
 	defer os.Remove(tmpfile)
 
 	w, err := NewNDJSONWriter(tmpfile, false)
-	if err != nil {
-		t.Fatalf("NewNDJSONWriter() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	logs := createTestLogs(2)
-	if err := w.WritePage(logs); err != nil {
-		t.Fatalf("WritePage() error = %v", err)
-	}
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, w.WritePage(logs))
+	require.NoError(t, w.Close())
 
 	// Read and verify file
 	content, err := os.ReadFile(tmpfile)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
-	if len(lines) != 2 {
-		t.Errorf("Expected 2 lines in file, got %d", len(lines))
-	}
+	assert.Len(t, lines, 2)
 }
 
 func TestNDJSONWriterAppend(t *testing.T) {
@@ -84,86 +61,46 @@ func TestNDJSONWriterAppend(t *testing.T) {
 
 	// Write first batch
 	w1, err := NewNDJSONWriter(tmpfile, false)
-	if err != nil {
-		t.Fatalf("NewNDJSONWriter() error = %v", err)
-	}
-	if err := w1.WritePage(createTestLogs(2)); err != nil {
-		t.Fatalf("WritePage() error = %v", err)
-	}
-	if err := w1.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, w1.WritePage(createTestLogs(2)))
+	require.NoError(t, w1.Close())
 
 	// Append second batch
 	w2, err := NewNDJSONWriter(tmpfile, true)
-	if err != nil {
-		t.Fatalf("NewNDJSONWriter() error = %v", err)
-	}
-	if err := w2.WritePage(createTestLogs(3)); err != nil {
-		t.Fatalf("WritePage() error = %v", err)
-	}
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, w2.WritePage(createTestLogs(3)))
+	require.NoError(t, w2.Close())
 
 	// Verify total lines
 	content, err := os.ReadFile(tmpfile)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
-	if len(lines) != 5 {
-		t.Errorf("Expected 5 lines total, got %d", len(lines))
-	}
+	assert.Len(t, lines, 5)
 }
 
 func TestJSONWriterWithOutput(t *testing.T) {
 	var buf bytes.Buffer
 	w, err := NewJSONWriterWithOutput(&buf)
-	if err != nil {
-		t.Fatalf("NewJSONWriterWithOutput() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Write multiple pages
-	if err := w.WritePage(createTestLogs(2)); err != nil {
-		t.Fatalf("WritePage() error = %v", err)
-	}
-	if err := w.WritePage(createTestLogs(3)); err != nil {
-		t.Fatalf("WritePage() error = %v", err)
-	}
-
-	if err := w.Finalize(); err != nil {
-		t.Fatalf("Finalize() error = %v", err)
-	}
+	require.NoError(t, w.WritePage(createTestLogs(2)))
+	require.NoError(t, w.WritePage(createTestLogs(3)))
+	require.NoError(t, w.Finalize())
 
 	// Verify output structure
 	var output map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &output); err != nil {
-		t.Fatalf("Output is not valid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &output))
 
 	logs, ok := output["logs"].([]interface{})
-	if !ok {
-		t.Fatalf("Output missing 'logs' array")
-	}
-
-	if len(logs) != 5 {
-		t.Errorf("Expected 5 logs, got %d", len(logs))
-	}
+	require.True(t, ok, "Output should have 'logs' array")
+	assert.Len(t, logs, 5)
 
 	meta, ok := output["meta"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Output missing 'meta' object")
-	}
-
-	if totalFetched := meta["total_fetched"]; totalFetched != float64(5) {
-		t.Errorf("Expected total_fetched=5, got %v", totalFetched)
-	}
-
-	if pages := meta["pages"]; pages != float64(2) {
-		t.Errorf("Expected pages=2, got %v", pages)
-	}
+	require.True(t, ok, "Output should have 'meta' object")
+	assert.Equal(t, float64(5), meta["total_fetched"])
+	assert.Equal(t, float64(2), meta["pages"])
 }
 
 func TestJSONWriterWithFile(t *testing.T) {
@@ -171,33 +108,21 @@ func TestJSONWriterWithFile(t *testing.T) {
 	defer os.Remove(tmpfile)
 
 	w, err := NewJSONWriter(tmpfile)
-	if err != nil {
-		t.Fatalf("NewJSONWriter() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := w.WritePage(createTestLogs(3)); err != nil {
-		t.Fatalf("WritePage() error = %v", err)
-	}
-
-	if err := w.Finalize(); err != nil {
-		t.Fatalf("Finalize() error = %v", err)
-	}
+	require.NoError(t, w.WritePage(createTestLogs(3)))
+	require.NoError(t, w.Finalize())
 
 	// Read and verify file
 	content, err := os.ReadFile(tmpfile)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	var output map[string]interface{}
-	if err := json.Unmarshal(content, &output); err != nil {
-		t.Fatalf("File content is not valid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(content, &output))
 
 	logs, ok := output["logs"].([]interface{})
-	if !ok || len(logs) != 3 {
-		t.Errorf("Expected 3 logs in output")
-	}
+	require.True(t, ok)
+	assert.Len(t, logs, 3)
 }
 
 func TestNewWriter(t *testing.T) {
@@ -252,12 +177,12 @@ func TestNewWriter(t *testing.T) {
 			}
 
 			w, err := New(tt.format, tt.path, tt.append)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
 
-			if err == nil {
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, w)
 				defer w.Close()
 			}
 		})
@@ -284,9 +209,7 @@ func createTestLogs(count int) []datadogV2.Log {
 func createTempFile(t *testing.T) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "dogfetch-test-*.json")
-	if err != nil {
-		t.Fatalf("CreateTemp() error = %v", err)
-	}
+	require.NoError(t, err)
 	path := f.Name()
 	f.Close()
 	return path

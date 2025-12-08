@@ -13,11 +13,17 @@ A CLI tool for fetching logs from Datadog. Ruff.
 
 ## Installation
 
+### Pre-built binaries
+
+Download the latest release for your platform from the [releases page](https://github.com/jtzemp/dogfetch/releases).
+
+### Go install
+
 ```bash
 go install github.com/jtzemp/dogfetch@latest
 ```
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/jtzemp/dogfetch
@@ -279,6 +285,33 @@ This format buffers all logs in memory before writing. Use for smaller datasets 
 ## Contributing
 
 Contributions welcome! Please open an issue or PR.
+
+## Releases
+
+Releases are automated using GitHub Actions and GoReleaser. To create a new release:
+
+1. **Create and push a tag:**
+   ```bash
+   git tag -a v1.0.0 -m "Release v1.0.0"
+   git push origin v1.0.0
+   ```
+
+2. **GitHub Actions will automatically:**
+   - Run all tests
+   - Build binaries for Linux, macOS, and Windows (amd64 and arm64)
+   - Create a GitHub release with:
+     - Release notes from commits since last tag
+     - Pre-built binaries
+     - Checksums for verification
+
+3. **Manual release (optional):**
+   ```bash
+   # Install goreleaser
+   go install github.com/goreleaser/goreleaser@latest
+
+   # Create a release locally
+   goreleaser release --snapshot --clean
+   ```
 
 ## License
 

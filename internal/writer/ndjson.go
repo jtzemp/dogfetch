@@ -2,6 +2,7 @@ package writer
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
@@ -9,11 +10,13 @@ import (
 
 // NDJSONWriter streams logs to a newline-delimited JSON file
 type NDJSONWriter struct {
-	file    *os.File
-	encoder *json.Encoder
+	writer     io.Writer
+	closer     io.Closer
+	encoder    *json.Encoder
+	shouldClose bool
 }
 
-// NewNDJSONWriter creates a new NDJSON writer
+// NewNDJSONWriter creates a new NDJSON writer for a file
 func NewNDJSONWriter(path string, append bool) (*NDJSONWriter, error) {
 	flags := os.O_CREATE | os.O_WRONLY
 	if append {
@@ -28,8 +31,19 @@ func NewNDJSONWriter(path string, append bool) (*NDJSONWriter, error) {
 	}
 
 	return &NDJSONWriter{
-		file:    f,
-		encoder: json.NewEncoder(f),
+		writer:      f,
+		closer:      f,
+		encoder:     json.NewEncoder(f),
+		shouldClose: true,
+	}, nil
+}
+
+// NewNDJSONWriterWithOutput creates a new NDJSON writer for any io.Writer
+func NewNDJSONWriterWithOutput(w io.Writer) (*NDJSONWriter, error) {
+	return &NDJSONWriter{
+		writer:      w,
+		encoder:     json.NewEncoder(w),
+		shouldClose: false,
 	}, nil
 }
 
@@ -48,10 +62,10 @@ func (w *NDJSONWriter) Finalize() error {
 	return nil
 }
 
-// Close closes the output file
+// Close closes the output file (if it's a file)
 func (w *NDJSONWriter) Close() error {
-	if w.file != nil {
-		return w.file.Close()
+	if w.shouldClose && w.closer != nil {
+		return w.closer.Close()
 	}
 	return nil
 }

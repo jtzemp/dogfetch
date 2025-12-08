@@ -3,7 +3,9 @@ package fetcher
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
@@ -16,10 +18,15 @@ type Fetcher struct {
 	client *Client
 	config *config.Config
 	writer writer.Writer
+	errOut io.Writer
 }
 
 // New creates a new Fetcher
-func New(cfg *config.Config) (*Fetcher, error) {
+func New(cfg *config.Config, errOut io.Writer) (*Fetcher, error) {
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+
 	client := NewClient(cfg.APIKey, cfg.AppKey, cfg.Site)
 
 	w, err := writer.New(cfg.Format, cfg.OutputPath, cfg.Append)
@@ -31,6 +38,7 @@ func New(cfg *config.Config) (*Fetcher, error) {
 		client: client,
 		config: cfg,
 		writer: w,
+		errOut: errOut,
 	}, nil
 }
 
@@ -43,16 +51,16 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 	pageCount := 0
 	startTime := time.Now()
 
-	fmt.Printf("Starting fetch with query: %s\n", f.config.Query)
-	fmt.Printf("Time range: %s to %s\n", f.config.From.Format(time.RFC3339), formatToTime(f.config.To))
-	fmt.Printf("Page size: %d\n", f.config.PageSize)
-	fmt.Println()
+	fmt.Fprintf(f.errOut, "Starting fetch with query: %s\n", f.config.Query)
+	fmt.Fprintf(f.errOut, "Time range: %s to %s\n", f.config.From.Format(time.RFC3339), formatToTime(f.config.To))
+	fmt.Fprintf(f.errOut, "Page size: %d\n", f.config.PageSize)
+	fmt.Fprintf(f.errOut, "\n")
 
 	for {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
-			fmt.Printf("\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
+			fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
 			return f.writer.Finalize()
 		default:
 		}
@@ -85,11 +93,11 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 		// Progress update
 		elapsed := time.Since(startTime)
 		rate := float64(totalLogs) / elapsed.Seconds()
-		fmt.Printf("Fetched %d logs (%d pages, %.1f logs/sec)", totalLogs, pageCount, rate)
+		fmt.Fprintf(f.errOut, "Fetched %d logs (%d pages, %.1f logs/sec)", totalLogs, pageCount, rate)
 		if newCursor != "" {
-			fmt.Printf(" - cursor: %s", newCursor)
+			fmt.Fprintf(f.errOut, " - cursor: %s", newCursor)
 		}
-		fmt.Println()
+		fmt.Fprintf(f.errOut, "\n")
 
 		// Check if we're done
 		if newCursor == "" || len(logs) == 0 {
@@ -99,7 +107,7 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 		cursor = newCursor
 	}
 
-	fmt.Printf("\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
+	fmt.Fprintf(f.errOut, "\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
 
 	return f.writer.Finalize()
 }
@@ -126,7 +134,7 @@ func (f *Fetcher) fetchPageWithRetry(ctx context.Context, cursor string) (datado
 		}
 
 		attempt++
-		fmt.Printf("Error (attempt %d/%d): %v - retrying in %v...\n", attempt, maxRetries, err, backoff)
+		fmt.Fprintf(f.errOut, "Error (attempt %d/%d): %v - retrying in %v...\n", attempt, maxRetries, err, backoff)
 
 		select {
 		case <-ctx.Done():
@@ -142,49 +150,38 @@ func (f *Fetcher) fetchPage(ctx context.Context, cursor string) (datadogV2.LogsL
 	// Add API keys to context
 	ctx = f.client.GetContext(ctx)
 
-	opts := []datadogV2.ListLogsGetOptionalParameters{}
+	// Build a single optional parameters struct
+	opts := datadogV2.ListLogsGetOptionalParameters{}
 
 	// Query
 	if f.config.Query != "" {
-		opts = append(opts, datadogV2.ListLogsGetOptionalParameters{
-			FilterQuery: &f.config.Query,
-		})
+		opts.FilterQuery = &f.config.Query
 	}
 
 	// Index
 	if f.config.Index != "" {
 		indexes := []string{f.config.Index}
-		opts = append(opts, datadogV2.ListLogsGetOptionalParameters{
-			FilterIndexes: &indexes,
-		})
+		opts.FilterIndexes = &indexes
 	}
 
 	// Time range
 	if !f.config.From.IsZero() {
-		opts = append(opts, datadogV2.ListLogsGetOptionalParameters{
-			FilterFrom: &f.config.From,
-		})
+		opts.FilterFrom = &f.config.From
 	}
 
 	if !f.config.To.IsZero() {
-		opts = append(opts, datadogV2.ListLogsGetOptionalParameters{
-			FilterTo: &f.config.To,
-		})
+		opts.FilterTo = &f.config.To
 	}
 
 	// Page size
-	opts = append(opts, datadogV2.ListLogsGetOptionalParameters{
-		PageLimit: &f.config.PageSize,
-	})
+	opts.PageLimit = &f.config.PageSize
 
 	// Cursor
 	if cursor != "" {
-		opts = append(opts, datadogV2.ListLogsGetOptionalParameters{
-			PageCursor: &cursor,
-		})
+		opts.PageCursor = &cursor
 	}
 
-	return f.client.GetAPI().ListLogsGet(ctx, opts...)
+	return f.client.GetAPI().ListLogsGet(ctx, opts)
 }
 
 // formatToTime formats the "to" time for display

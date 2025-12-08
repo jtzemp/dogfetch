@@ -20,15 +20,17 @@ func Execute() {
 	from := flag.String("from", "", "Start date/time (default: 24 hours ago)")
 	to := flag.String("to", "", "End date/time (default: now)")
 	pageSize := flag.Int("pageSize", 1000, "Results per page (max 5000)")
-	output := flag.String("output", "results.json", "Output file path")
-	format := flag.String("format", "json", "Output format: json or ndjson")
+	output := flag.String("output", "", "Output file path (default: stdout)")
+	format := flag.String("format", "ndjson", "Output format: json or ndjson")
 	cursor := flag.String("cursor", "", "Page cursor for resuming")
 	appendFlag := flag.Bool("append", false, "Append to output file (ndjson only)")
+	errorsOut := flag.String("errors-out", "", "Write errors to file (default: stderr)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "dogfetch - Fetch logs from Datadog\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  dogfetch --query 'service:web status:error'\n\n")
+		fmt.Fprintf(os.Stderr, "  dogfetch --query 'service:web status:error'\n")
+		fmt.Fprintf(os.Stderr, "  dogfetch --query 'service:web' --output logs.ndjson\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment Variables:\n")
@@ -38,6 +40,18 @@ func Execute() {
 	}
 
 	flag.Parse()
+
+	// Setup error output
+	errOut := os.Stderr
+	if *errorsOut != "" {
+		f, err := os.OpenFile(*errorsOut, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open error output file: %v\n", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+		errOut = f
+	}
 
 	// Build config
 	cfg := &config.Config{
@@ -57,7 +71,7 @@ func Execute() {
 	if *from != "" {
 		parsedFrom, err := config.ParseTime(*from)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing --from: %v\n", err)
+			fmt.Fprintf(errOut, "Error parsing --from: %v\n", err)
 			os.Exit(1)
 		}
 		cfg.From = parsedFrom
@@ -68,7 +82,7 @@ func Execute() {
 	if *to != "" {
 		parsedTo, err := config.ParseTime(*to)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing --to: %v\n", err)
+			fmt.Fprintf(errOut, "Error parsing --to: %v\n", err)
 			os.Exit(1)
 		}
 		cfg.To = parsedTo
@@ -76,15 +90,15 @@ func Execute() {
 
 	// Validate config
 	if err := cfg.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
+		fmt.Fprintf(errOut, "Configuration error: %v\n", err)
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	// Create fetcher
-	f, err := fetcher.New(cfg)
+	f, err := fetcher.New(cfg, errOut)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create fetcher: %v\n", err)
+		fmt.Fprintf(errOut, "Failed to create fetcher: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -97,13 +111,13 @@ func Execute() {
 
 	go func() {
 		<-sigChan
-		fmt.Println("\nReceived interrupt signal, shutting down gracefully...")
+		fmt.Fprintf(errOut, "\nReceived interrupt signal, shutting down gracefully...\n")
 		cancel()
 	}()
 
 	// Execute fetch
 	if err := f.Fetch(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Fetch failed: %v\n", err)
+		fmt.Fprintf(errOut, "Fetch failed: %v\n", err)
 		os.Exit(1)
 	}
 }

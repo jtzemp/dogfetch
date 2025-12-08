@@ -2,6 +2,7 @@ package writer
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
@@ -9,16 +10,29 @@ import (
 
 // JSONWriter buffers all logs in memory and writes a single JSON file
 type JSONWriter struct {
-	path      string
-	logs      []datadogV2.Log
-	pageCount int
+	path        string
+	output      io.Writer
+	logs        []datadogV2.Log
+	pageCount   int
+	shouldClose bool
+	closer      io.Closer
 }
 
-// NewJSONWriter creates a new JSON writer
+// NewJSONWriter creates a new JSON writer for a file
 func NewJSONWriter(path string) (*JSONWriter, error) {
 	return &JSONWriter{
-		path: path,
-		logs: make([]datadogV2.Log, 0),
+		path:        path,
+		logs:        make([]datadogV2.Log, 0),
+		shouldClose: true,
+	}, nil
+}
+
+// NewJSONWriterWithOutput creates a new JSON writer for any io.Writer
+func NewJSONWriterWithOutput(w io.Writer) (*JSONWriter, error) {
+	return &JSONWriter{
+		output:      w,
+		logs:        make([]datadogV2.Log, 0),
+		shouldClose: false,
 	}, nil
 }
 
@@ -29,13 +43,22 @@ func (w *JSONWriter) WritePage(logs []datadogV2.Log) error {
 	return nil
 }
 
-// Finalize writes all buffered logs to the output file
+// Finalize writes all buffered logs to the output
 func (w *JSONWriter) Finalize() error {
-	f, err := os.Create(w.path)
-	if err != nil {
-		return err
+	var out io.Writer
+
+	if w.output != nil {
+		// Writing to provided writer (e.g., stdout)
+		out = w.output
+	} else {
+		// Writing to file
+		f, err := os.Create(w.path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		out = f
 	}
-	defer f.Close()
 
 	output := map[string]interface{}{
 		"logs": w.logs,
@@ -45,7 +68,7 @@ func (w *JSONWriter) Finalize() error {
 		},
 	}
 
-	encoder := json.NewEncoder(f)
+	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(output)
 }

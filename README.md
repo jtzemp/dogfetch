@@ -44,14 +44,20 @@ export DD_SITE=datadoghq.eu
 ### Basic Usage
 
 ```bash
-# Fetch logs matching a query
+# Fetch logs matching a query (outputs to stdout)
 dogfetch --query 'service:web status:error'
+
+# Pipe to a file
+dogfetch --query 'service:web status:error' > logs.ndjson
+
+# Or save directly to a file
+dogfetch --query 'service:web status:error' --output logs.ndjson
 
 # Specify a custom time range
 dogfetch --query 'service:api' --from '2024-01-01T00:00:00Z' --to '2024-01-02T00:00:00Z'
 
-# Save to a specific file
-dogfetch --query 'service:database' --output db-logs.json
+# Use JSON format and save to file
+dogfetch --query 'service:database' --format json --output db-logs.json
 ```
 
 ### Command Line Options
@@ -76,13 +82,14 @@ dogfetch --query 'service:database' --output db-logs.json
     How many results to download at a time (default: 1000, max: 5000)
 
 --output string
-    Path of file to write results to (default "results.json")
+    Path of file to write results to (default: stdout)
+    When not specified, logs are written to stdout and progress to stderr
 
 --format string
-    Output format: "json" or "ndjson" (default "json")
+    Output format: "json" or "ndjson" (default "ndjson")
 
     json   - Single JSON array, all data loaded into memory
-    ndjson - Newline-delimited JSON, streams to disk (low memory)
+    ndjson - Newline-delimited JSON, streams as it fetches (low memory)
 
 --cursor string
     Page cursor position for resuming from a specific point
@@ -91,34 +98,38 @@ dogfetch --query 'service:database' --output db-logs.json
 --append
     Append to output file instead of overwriting
     Only works with streamable formats (ndjson)
+
+--errors-out string
+    Write progress and error messages to file (default: stderr)
 ```
 
 ### Advanced Usage
 
 #### Streaming Large Datasets
 
-For large log queries, use NDJSON format to minimize memory usage:
+NDJSON format (the default) streams results as they're fetched, minimizing memory usage:
 
 ```bash
 dogfetch --query 'service:api' \
-  --format ndjson \
   --output large-export.ndjson \
   --pageSize 5000
+
+# Or pipe directly to another tool
+dogfetch --query 'service:api' | jq -r '.attributes.message'
 ```
 
 #### Resume After Interruption
 
-If a large fetch is interrupted, you can resume from where it left off. The cursor value is printed when the fetch stops:
+If a large fetch is interrupted, you can resume from where it left off. The cursor value is printed to stderr when the fetch stops:
 
 ```bash
 # First attempt (gets interrupted)
-dogfetch --query 'service:web' --format ndjson --output logs.ndjson
-# Output: Fetched 50000 logs... cursor: eyJhZnRlciI6eyJpZCI6IjEyMzQ1Njc4OTAiLCJ0aW1lc3RhbXAiOjE3MDQwNjcyMDB9fQ==
+dogfetch --query 'service:web' --output logs.ndjson
+# stderr: Fetched 50000 logs... cursor: eyJhZnRlciI6eyJpZCI6IjEyMzQ1Njc4OTAiLCJ0aW1lc3RhbXAiOjE3MDQwNjcyMDB9fQ==
 # (interrupted)
 
 # Resume from cursor
 dogfetch --query 'service:web' \
-  --format ndjson \
   --output logs.ndjson \
   --cursor 'eyJhZnRlciI6eyJpZCI6IjEyMzQ1Njc4OTAiLCJ0aW1lc3RhbXAiOjE3MDQwNjcyMDB9fQ==' \
   --append
@@ -129,12 +140,49 @@ dogfetch --query 'service:web' \
 #### Query Multiple Indexes
 
 ```bash
-dogfetch --query 'status:error' --index 'retention-30'
+dogfetch --query 'status:error' --index 'retention-30' --output errors.ndjson
+```
+
+#### Redirect Errors to File
+
+```bash
+# Keep progress messages separate from output
+dogfetch --query 'service:web' --errors-out progress.log > logs.ndjson
 ```
 
 ## Output Formats
 
-### JSON (default)
+### NDJSON (default)
+
+Each log is a separate JSON object on its own line:
+
+```json
+{"id":"...","attributes":{"message":"...","timestamp":"..."}}
+{"id":"...","attributes":{"message":"...","timestamp":"..."}}
+```
+
+This format:
+- Uses minimal memory (logs are streamed as they're fetched)
+- Can be processed line-by-line with standard tools
+- Supports checkpoint/resume with `--cursor` and `--append`
+- Works well with pipes and streaming tools
+
+Process with standard tools:
+```bash
+# Count logs
+wc -l logs.ndjson
+
+# Filter with jq
+jq 'select(.attributes.status == "error")' logs.ndjson
+
+# Extract specific field
+jq -r '.attributes.message' logs.ndjson
+
+# Stream and process in real-time
+dogfetch --query 'service:web' | jq -r '.attributes.message'
+```
+
+### JSON
 
 Outputs a single JSON object with all logs in an array:
 
@@ -158,31 +206,7 @@ Outputs a single JSON object with all logs in an array:
 }
 ```
 
-### NDJSON (newline-delimited JSON)
-
-Each log is a separate JSON object on its own line:
-
-```json
-{"id":"...","attributes":{"message":"...","timestamp":"..."}}
-{"id":"...","attributes":{"message":"...","timestamp":"..."}}
-```
-
-This format:
-- Uses minimal memory (logs are written as they're fetched)
-- Can be processed line-by-line with standard tools
-- Supports checkpoint/resume with `--cursor` and `--append`
-
-Process with standard tools:
-```bash
-# Count logs
-wc -l logs.ndjson
-
-# Filter with jq
-cat logs.ndjson | jq 'select(.attributes.status == "error")'
-
-# Extract specific field
-cat logs.ndjson | jq -r '.attributes.message'
-```
+This format buffers all logs in memory before writing. Use for smaller datasets or when you need the metadata wrapper.
 
 ## Architecture
 

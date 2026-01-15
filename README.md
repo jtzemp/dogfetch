@@ -295,6 +295,68 @@ metadata wrapper.
 - **Permanent errors** (400, 401, 403): Fail immediately with clear message
 - **Context cancellation** (Ctrl+C): Graceful shutdown, print current cursor (works on Windows, macOS, and Linux)
 
+## Using with Claude Code
+
+dogfetch works well as a tool for AI coding agents like Claude Code. Since it outputs NDJSON to stdout, Claude can invoke it, parse the results, and reason about your logs.
+
+### Setup
+
+1. Create an env file with your Datadog credentials:
+
+```bash
+# ~/.config/dogfetch/env (or wherever you prefer)
+export DD_API_KEY=your_api_key
+export DD_APP_KEY=your_app_key
+export DD_SITE=datadoghq.com  # optional, defaults to datadoghq.com
+```
+
+2. Add a SKILL.md file to your project's `.claude/skills/` directory (or wherever your agent looks for tool definitions):
+
+```markdown
+---
+name: datadog-logs
+description: Query and analyze Datadog logs
+---
+
+## dogfetch CLI
+
+Query tool for Datadog logs.
+
+**Command pattern:**
+
+    bash -c 'source ~/.config/dogfetch/env && dogfetch --query "" --from "" --to "" --pageSize 5000'
+
+Use ISO 8601 timestamps (e.g., `2025-12-08T00:00:00Z`). 
+Get current time: `date -u +%Y-%m-%dT%H:%M:%SZ`
+
+## Query Syntax
+
+**Basic patterns:**
+- Filter by service: `service:api-gateway`
+- Filter by status: `status:error`
+- Wildcards: `service:*handler`
+- Combine: `service:web status:error "timeout"`
+- Exclude: `-service:test`
+
+**Common facets:**
+- `@http.status_code`, `@http.method`, `@http.url_details.path`
+- `@duration`
+- `@error.message`
+
+Your services may have custom facets. Check your Datadog log explorer for available fields.
+
+## Example Queries
+
+- All errors for a service: `service:my-api status:error`
+- HTTP 500s: `service:my-api @http.status_code:500`
+- Slow requests: `service:my-api @duration:>5000000000` (nanoseconds)
+- Exclude health checks: `service:my-api status:error -@http.url_details.path:/health`
+```
+
+### How it works
+
+When Claude needs to investigate logs, it can run dogfetch with an appropriate query. The NDJSON output is easy to parse, and Claude can iterate on queries to narrow down issues.
+
 ## Contributing
 
 Contributions welcome! Please open an issue or PR.

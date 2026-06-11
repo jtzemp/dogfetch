@@ -42,8 +42,16 @@ func New(cfg *config.Config, errOut io.Writer) (*Fetcher, error) {
 	}, nil
 }
 
+// Result summarizes a completed (or interrupted) fetch.
+type Result struct {
+	Total      int
+	Pages      int
+	NextCursor string // non-empty when more logs are available (limit hit or cancelled)
+	Elapsed    time.Duration
+}
+
 // Fetch retrieves logs from Datadog
-func (f *Fetcher) Fetch(ctx context.Context) error {
+func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 	defer f.writer.Close()
 
 	cursor := f.config.Cursor
@@ -56,25 +64,40 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 	fmt.Fprintf(f.errOut, "Page size: %d\n", f.config.PageSize)
 	fmt.Fprintf(f.errOut, "\n")
 
+	result := func(nextCursor string) *Result {
+		return &Result{
+			Total:      totalLogs,
+			Pages:      pageCount,
+			NextCursor: nextCursor,
+			Elapsed:    time.Since(startTime),
+		}
+	}
+
 	for {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
 			fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
-			return f.writer.Finalize()
+			return result(cursor), f.writer.Finalize()
 		default:
 		}
 
 		// Fetch page with retry
 		resp, _, err := f.fetchPageWithRetry(ctx, cursor)
 		if err != nil {
-			return err
+			return result(cursor), err
 		}
 
-		// Write logs
+		// Trim to --limit before writing
 		logs := resp.GetData()
+		limitHit := false
+		if f.config.Limit > 0 && totalLogs+len(logs) >= f.config.Limit {
+			logs = logs[:f.config.Limit-totalLogs]
+			limitHit = true
+		}
+
 		if err := f.writer.WritePage(logs); err != nil {
-			return fmt.Errorf("failed to write page: %w", err)
+			return result(cursor), fmt.Errorf("failed to write page: %w", err)
 		}
 
 		pageCount++
@@ -99,6 +122,14 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 		}
 		fmt.Fprintf(f.errOut, "\n")
 
+		if limitHit {
+			if newCursor != "" {
+				fmt.Fprintf(f.errOut, "\nLimit of %d reached. More logs available. Resume with --cursor '%s'\n", f.config.Limit, newCursor)
+			}
+			fmt.Fprintf(f.errOut, "\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
+			return result(newCursor), f.writer.Finalize()
+		}
+
 		// Check if we're done
 		if newCursor == "" || len(logs) == 0 {
 			break
@@ -109,7 +140,7 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 
 	fmt.Fprintf(f.errOut, "\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
 
-	return f.writer.Finalize()
+	return result(""), f.writer.Finalize()
 }
 
 // fetchPageWithRetry fetches a single page with retry logic

@@ -72,6 +72,37 @@ func TestParseTimeUnix(t *testing.T) {
 	assert.Equal(t, actualTime, want)
 }
 
+func TestParseTimeRelative(t *testing.T) {
+	tests := []struct {
+		input string
+		want  time.Duration
+	}{
+		{"30s", 30 * time.Second},
+		{"15m", 15 * time.Minute},
+		{"2h", 2 * time.Hour},
+		{"3d", 3 * 24 * time.Hour},
+		{"1w", 7 * 24 * time.Hour},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := ParseTime(tt.input)
+			require.NoError(t, err)
+			expected := time.Now().Add(-tt.want)
+			assert.WithinDuration(t, expected, got, 2*time.Second)
+		})
+	}
+}
+
+func TestParseTimeRelativeInvalid(t *testing.T) {
+	for _, input := range []string{"15x", "m15", "-15m", "1.5h"} {
+		t.Run(input, func(t *testing.T) {
+			_, err := ParseTime(input)
+			assert.Error(t, err)
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string

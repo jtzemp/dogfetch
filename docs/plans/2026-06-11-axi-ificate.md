@@ -1,0 +1,91 @@
+# dogfetch AXI-ification: Agent-Optimized CLI + Claude Code Plugin
+
+## Status
+
+- [x] **Phase 1** — CLI core: dispatch, env precedence, exit codes, relative times, `--limit`, auth file (commit `2abdc23`)
+- [ ] **Phase 2** — TOON output, projection, truncation, structured errors, home view
+- [ ] **Phase 3** — `dogfetch summary` (Aggregate API)
+- [ ] **Phase 4** — `dogfetch patterns` (drain-style clustering)
+- [ ] **Phase 5** — Claude Code plugin + binary wrapper
+- [ ] **Phase 6** — Hardening & polish
+
+## Context
+
+dogfetch is a single-command Go CLI that exports Datadog logs as JSON/NDJSON. Raw Datadog `Log` objects are huge nested blobs — fine for file export, terrible for agent context windows. Goal: make dogfetch agent-optimized per the AXI principles (axi.md — vendored at `.agents/skills/axi/SKILL.md`) and distribute it as an installable Claude Code plugin from this repo, with auto-downloaded binaries for linux-amd64 and darwin-arm64 (goreleaser already builds all platforms).
+
+Token-saving levers, in order of impact: **field projection** (4 default fields vs full blobs) > **pattern clustering** (collapse repetitive logs) > **aggregates** (answer "how many errors" without raw logs) > **TOON encoding** (~40–60% vs JSON on tabular data). Runtime lever: `--limit` (stop fetching early) and the Aggregate API (no pagination at all for summaries).
+
+User decisions: comprehensive plan, executed in phases. `--format toon` flag + `DOGFETCH_*` env vars for defaulting settings (flag > env > default). Binary install fully automatic (sha256-verified download from GitHub Releases); Datadog auth is unavoidably a one-time manual key creation, so first-run UX guides it (keys readable from `~/.config/dogfetch/env`).
+
+## Design decisions
+
+- **D1 — stdlib `flag` + hand-rolled subcommand dispatch** (no cobra). Verbs: `fetch` (default), `summary`, `patterns`, `auth`, `version`. Back-compat shim: if `os.Args[1]` starts with `-`, treat as implicit `fetch`, so all existing invocations keep working. Bare `dogfetch` (currently an error) becomes the AXI content-first home view.
+- **D2 — flag > env > default** via `fs.Visit` to collect explicitly-set flags, then `fs.Set(name, os.Getenv(...))` for unset ones. Mapping: `DOGFETCH_FORMAT`, `DOGFETCH_FIELDS`, `DOGFETCH_LIMIT`, `DOGFETCH_PAGESIZE`, `DOGFETCH_INDEX`. Helper in `internal/cli/env.go`.
+- **D3 — In-repo TOON encoder (~150–200 lines), not toon-go.** Our output is exactly TOON's simple subset (scalars, `key[N]{f1,f2}:` tabular blocks). The spec is a fast-moving Working Draft (v3.2); a small golden-tested `internal/toon` package avoids dependency churn. Document the targeted spec version.
+- **D4 — Projection in new `internal/project` package**, consumed by writers. Default fields `timestamp,status,service,message`; `--fields` takes attribute paths resolved against `log.GetAttributes()`. Messages truncated (~500 chars) with one AXI hint in the trailing `help[]` block, not per-row. Writer interface keeps `WritePage([]datadogV2.Log)` (fetcher untouched) but `Finalize()` becomes `Finalize(Meta)` where `Meta{Total, NextCursor, Query, Elapsed}`; factory becomes `writer.New(cfg)`.
+- **D5 — Structured errors on stdout** (per AXI) via new `internal/axierr` package: `{Code, Message, Help []string, Exit int}`, rendered in the active format. Raw diagnostics/progress stay on stderr/`--errors-out` as today. `cmd.Execute()` returns an int; `main.go` does `os.Exit(cmd.Execute())`. Exit codes: 0 success (incl. empty results), 1 runtime error, 2 usage error. 401/403 render the auth help block with exact Datadog UI URLs.
+- **D6 — Default format:** `toon` when writing to stdout, `ndjson` when `--output` is given (file export stays lossless). Breaking change for stdout pipers; `DOGFETCH_FORMAT=ndjson` is the escape hatch — call out in README + release notes.
+
+## Phase 1 — CLI core: dispatch, env precedence, exit codes, relative times, --limit, auth file ✅ DONE
+
+Implemented in commit `2abdc23`:
+
+- `main.go`: `os.Exit(cmd.Execute())`.
+- `cmd/root.go`: dispatch table + implicit-fetch shim, `Execute() int`. `cmd/fetch.go` holds the existing flag set + `--limit`, `--fields` (parsed; used in Phase 2).
+- `internal/cli/env.go`: `ApplyEnvDefaults(fs, map[flagName]envVar)` (D2).
+- `internal/config/config.go`: added `Limit`, `Fields`; `ParseTime` accepts relative durations `^(\d+)([smhdw])$` → `now - d`; `Validate()` split into `ValidateUsage()` (exit 2) and `ValidateAuth()` (exit 1).
+- `internal/config/envfile.go`: loads `~/.config/dogfetch/env` (KEY=VALUE, `#` comments, `export `/quote stripping) as fallback when `DD_API_KEY`/`DD_APP_KEY` unset; warns (not fails) on perms looser than 0600. Process env wins.
+- `internal/fetcher/fetcher.go`: `--limit` trims the final page to exactly N, stops, returns `*Result{Total, Pages, NextCursor, Elapsed}`; prints "More logs available. Resume with --cursor '…'".
+
+Verified: all tests pass; exit-code matrix confirmed (version→0, bare→2, badflag→2, unknown cmd→2, missing auth→1, bad time→2, neg limit→2, bad env value→2, -h→0); legacy `dogfetch --query … --format ndjson` invocation unchanged.
+
+## Phase 2 — TOON output, projection, truncation, structured errors, home view
+
+- New `internal/toon/` encoder (D3) with golden tests (`testdata/*.toon`): `Scalar()`, `Table(name, fields, rows)`, quoting/escaping rules.
+- New `internal/project/` (D4): projector + attribute-path resolution over typed fields and `AdditionalProperties`.
+- New `internal/writer/toon.go`: buffers projected rows (bounded — pairs with `--limit`), `Finalize(meta)` emits `count:` (+ cursor-resume notice), `logs[N]{…}` table, definitive empty state (`logs: 0 matched query "…" in range …`), `help[]` (truncation hint, `--fields` widening, cursor resume).
+- `internal/writer/writer.go` + `json.go` + `ndjson.go`: `New(cfg)` factory, `Finalize(Meta)`; json/ndjson apply projector only when `--fields` set.
+- New `internal/axierr/` (D5); route fetcher/config errors through it. Default-format switch (D6) in `cmd/fetch.go`.
+- New `cmd/home.go`: no-args view — `bin:`, `description:`, `auth: ok (site: …)` / `auth: missing DD_API_KEY`, `help[]` example commands. New `cmd/auth.go`: `dogfetch auth` prints status + remediation (Datadog key URLs, env-file format), exit 0.
+
+**Verify:** golden tests; e2e via `httptest` mock of `/api/v2/logs/events` asserting full stdout bytes for results/empty/truncated/401 + exit codes; manual token comparison toon vs ndjson on a real query (~expect >60% reduction with projection).
+
+## Phase 3 — `dogfetch summary` (Aggregate API — no pagination, fast)
+
+- New `cmd/summary.go`, `internal/fetcher/aggregate.go` using SDK `LogsApi.AggregateLogs` (`POST /api/v2/logs/analytics/aggregate`): count grouped by `status` and `service` (limit 25, annotate `(top 25 of N)` when truncated), plus a timeseries bucketed to ~12 intervals (rounded to 1m/5m/1h/1d).
+- Output: `total:`, `by_status[…]`, `by_service[…]`, `timeline[…]`, `help[]` suggesting `patterns`/`fetch --limit` drill-downs. Reuse `retry.go`. Fix the misplaced `SetUnstableOperationEnabled` in `client.go` while there.
+
+**Verify:** httptest mock with canned aggregate responses, golden toon output; manual totals vs Datadog UI.
+
+## Phase 4 — `dogfetch patterns` (drain-style clustering)
+
+- New `internal/cluster/`: tokenize on whitespace (cap 32 tokens); mask volatile tokens (digits, hex≥8, UUIDs, IPs, quoted values) → `<*>`; bucket by (token-count band, first stable token); merge at ≥0.5 positional similarity; cap 1000 clusters + `(other)` overflow → memory O(clusters), streaming-safe.
+- New `cmd/patterns.go`: reuses fetcher with forced timestamp+message projection, default scan cap 10000. Output sorted by count desc: `patterns[N]{count,first_seen,last_seen,pattern}`; `--samples` adds a sample per pattern; `help[]` suggests literal-quoted drill-down queries.
+
+**Verify:** fixture corpora unit tests; shuffle-stability tolerance test.
+
+## Phase 5 — Claude Code plugin + binary wrapper
+
+- `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (so `/plugin marketplace add jtzemp/dogfetch` works). **Verify schema against current Claude Code plugin docs at phase start.**
+- `skills/dogfetch/SKILL.md`: trigger-shaped description; teaches Datadog query syntax, the agent-optimal call order (**summary → patterns → fetch --limit**), auth setup, invocation via `"${CLAUDE_PLUGIN_ROOT}/scripts/dogfetch.sh"`.
+- `scripts/dogfetch.sh` (POSIX sh): map `uname -s/-m` → goreleaser asset names (verified: `dogfetch_<ver>_Darwin_arm64.tar.gz`, `…_Linux_x86_64.tar.gz`); version resolution `DOGFETCH_VERSION` env > pin file > GitHub `releases/latest` (cache resolved tag 24h — anonymous API is 60 req/hr); download archive + `checksums.txt`, verify sha256, extract to `~/.cache/dogfetch/<version>/`, `exec` with args. `--self-update` re-pins latest. AXI-shaped error block on download/verify failure. Wrapper may also export agent-default env (e.g. `DOGFETCH_FORMAT=toon`) unless already set.
+- Skill instead of SessionStart hook (dogfetch has no per-repo ambient state; a hook would burn tokens every session). Add plugin-version bump check to `release.yml`. README: install + breaking-change notes.
+
+**Verify:** `bash -n`; run wrapper on a Mac against a real release; tamper-test sha256 rejection; local `/plugin marketplace add` and confirm skill loads and executes end-to-end.
+
+## Phase 6 — Hardening & polish
+
+- Token-count regression test (50-log fixture: TOON ≤ 0.65× JSON by len/4 approximation) wired into CI.
+- `cmd`-level e2e tests covering the 0/1/2 exit-code matrix for all subcommands.
+- README rewrite (agent usage, breaking-change note), `make golden-update` target.
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| TOON spec drift | In-repo subset encoder + golden tests (D3) |
+| Default stdout format change breaks pipes | ndjson stays default with `--output`; `DOGFETCH_FORMAT` escape hatch; release notes |
+| Aggregate API limits/missing facets | Bucket-truncation annotations, retry reuse, definitive empty states |
+| Clustering order-sensitivity | Tolerance tests, cluster cap + `(other)` |
+| Wrapper ↔ goreleaser asset-name coupling | Single mapping function, integration test vs real release |
+| Plugin schema churn | Re-verify plugin.json/marketplace.json at Phase 5 start |

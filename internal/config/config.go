@@ -22,7 +22,7 @@ type Config struct {
 
 	// Output
 	OutputPath string
-	Format     string // "json" or "ndjson"
+	Format     string // "toon", "json", or "ndjson"
 	Append     bool
 	Fields     []string // projection fields; empty = format default
 
@@ -54,16 +54,19 @@ func (c *Config) ValidateUsage() error {
 		return fmt.Errorf("limit must be >= 0, got %d", c.Limit)
 	}
 
-	if c.Format != "json" && c.Format != "ndjson" {
-		return fmt.Errorf("format must be 'json' or 'ndjson', got '%s'", c.Format)
+	if c.Format != "json" && c.Format != "ndjson" && c.Format != "toon" {
+		return fmt.Errorf("format must be 'toon', 'json', or 'ndjson', got '%s'", c.Format)
 	}
 
 	if c.Append && c.Format != "ndjson" {
 		return fmt.Errorf("--append only works with --format ndjson")
 	}
 
-	if c.Cursor != "" && c.Format != "ndjson" {
-		return fmt.Errorf("--cursor only works with --format ndjson")
+	// A resumed page in a buffered json document would silently produce
+	// a partial export; streaming (ndjson) and context-window (toon)
+	// outputs resume fine.
+	if c.Cursor != "" && c.Format == "json" {
+		return fmt.Errorf("--cursor does not work with --format json; use ndjson or toon")
 	}
 
 	if !c.To.IsZero() && c.From.After(c.To) {

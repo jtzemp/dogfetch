@@ -29,7 +29,7 @@ func New(cfg *config.Config, errOut io.Writer) (*Fetcher, error) {
 
 	client := NewClient(cfg.APIKey, cfg.AppKey, cfg.Site)
 
-	w, err := writer.New(cfg.Format, cfg.OutputPath, cfg.Append)
+	w, err := writer.New(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create writer: %w", err)
 	}
@@ -73,12 +73,24 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 		}
 	}
 
+	finalize := func(nextCursor string) error {
+		return f.writer.Finalize(writer.Meta{
+			Total:      totalLogs,
+			Pages:      pageCount,
+			NextCursor: nextCursor,
+			Query:      f.config.Query,
+			From:       f.config.From,
+			To:         f.config.To,
+			Elapsed:    time.Since(startTime),
+		})
+	}
+
 	for {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
 			fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
-			return result(cursor), f.writer.Finalize()
+			return result(cursor), finalize(cursor)
 		default:
 		}
 
@@ -127,7 +139,7 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 				fmt.Fprintf(f.errOut, "\nLimit of %d reached. More logs available. Resume with --cursor '%s'\n", f.config.Limit, newCursor)
 			}
 			fmt.Fprintf(f.errOut, "\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
-			return result(newCursor), f.writer.Finalize()
+			return result(newCursor), finalize(newCursor)
 		}
 
 		// Check if we're done
@@ -140,7 +152,7 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 
 	fmt.Fprintf(f.errOut, "\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
 
-	return result(""), f.writer.Finalize()
+	return result(""), finalize("")
 }
 
 // fetchPageWithRetry fetches a single page with retry logic

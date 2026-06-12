@@ -2,6 +2,7 @@ package fetcher
 
 import (
 	"context"
+	"strings"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
@@ -19,10 +20,15 @@ func NewClient(apiKey, appKey, site string) *Client {
 	config := datadog.NewConfiguration()
 	if site != "" {
 		config.SetUnstableOperationEnabled("v2.ListLogsGet", true)
-		// Set the server based on site
+		// Set the server based on site. A full URL (used by tests to
+		// point at a local mock) is taken as-is.
+		url := "https://api." + site
+		if strings.HasPrefix(site, "http://") || strings.HasPrefix(site, "https://") {
+			url = site
+		}
 		config.Servers = datadog.ServerConfigurations{
 			{
-				URL:         "https://api." + site,
+				URL:         url,
 				Description: "Datadog site",
 			},
 		}

@@ -1,0 +1,139 @@
+// Package toon implements the subset of TOON (Token-Oriented Object
+// Notation) that dogfetch emits: scalar key/value lines, tabular array
+// blocks, and AXI-style help lists.
+//
+// It targets the TOON Working Draft v3.2 (https://toonformat.dev). A
+// full encoder is deliberately avoided: the spec is a moving target and
+// our output never nests, so ~150 lines with golden tests beats a
+// dependency.
+package toon
+
+import (
+	"fmt"
+	"io"
+	"regexp"
+	"strings"
+)
+
+const indent = "  "
+
+// Encoder writes TOON blocks to an underlying writer.
+type Encoder struct {
+	w   io.Writer
+	err error
+}
+
+// NewEncoder returns an Encoder writing to w.
+func NewEncoder(w io.Writer) *Encoder {
+	return &Encoder{w: w}
+}
+
+// Err returns the first write error encountered, if any.
+func (e *Encoder) Err() error {
+	return e.err
+}
+
+func (e *Encoder) printf(format string, args ...any) {
+	if e.err != nil {
+		return
+	}
+	_, e.err = fmt.Fprintf(e.w, format, args...)
+}
+
+// Scalar writes a single `key: value` line.
+func (e *Encoder) Scalar(key string, value any) {
+	switch v := value.(type) {
+	case string:
+		e.printf("%s: %s\n", key, Quote(v))
+	default:
+		e.printf("%s: %v\n", key, v)
+	}
+}
+
+// Table writes a tabular array block:
+//
+//	name[N]{f1,f2}:
+//	  v1,v2
+//
+// Each row must have len(fields) values; rows are quoted as needed.
+func (e *Encoder) Table(name string, fields []string, rows [][]string) {
+	e.printf("%s[%d]{%s}:\n", name, len(rows), strings.Join(fields, ","))
+	for _, row := range rows {
+		quoted := make([]string, len(row))
+		for i, v := range row {
+			quoted[i] = Quote(v)
+		}
+		e.printf("%s%s\n", indent, strings.Join(quoted, ","))
+	}
+}
+
+// List writes an AXI-style help block: a `name[N]:` header followed by
+// one indented line per item. Items are emitted verbatim (they are
+// prose and command templates, not data cells).
+func (e *Encoder) List(name string, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	e.printf("%s[%d]:\n", name, len(items))
+	for _, item := range items {
+		e.printf("%s%s\n", indent, item)
+	}
+}
+
+// numberLike matches strings that would parse as a TOON number.
+var numberLike = regexp.MustCompile(`^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$`)
+
+// Quote returns s quoted/escaped per TOON rules when necessary, or s
+// unchanged when it is safe as a bare string.
+func Quote(s string) string {
+	if needsQuoting(s) {
+		var b strings.Builder
+		b.Grow(len(s) + 2)
+		b.WriteByte('"')
+		for _, r := range s {
+			switch r {
+			case '"':
+				b.WriteString(`\"`)
+			case '\\':
+				b.WriteString(`\\`)
+			case '\n':
+				b.WriteString(`\n`)
+			case '\r':
+				b.WriteString(`\r`)
+			case '\t':
+				b.WriteString(`\t`)
+			default:
+				b.WriteRune(r)
+			}
+		}
+		b.WriteByte('"')
+		return b.String()
+	}
+	return s
+}
+
+func needsQuoting(s string) bool {
+	if s == "" {
+		return true
+	}
+	if s != strings.TrimSpace(s) {
+		return true
+	}
+	switch s {
+	case "true", "false", "null":
+		return true
+	}
+	if numberLike.MatchString(s) {
+		return true
+	}
+	switch s[0] {
+	case '-', '"', '#', '[', ']', '{', '}':
+		return true
+	}
+	// A bare colon is safe (timestamps, URLs); only "key: value"
+	// ambiguity needs quoting.
+	if strings.Contains(s, ": ") || strings.HasSuffix(s, ":") {
+		return true
+	}
+	return strings.ContainsAny(s, ",\"\n\r\t\\")
+}

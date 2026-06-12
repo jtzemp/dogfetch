@@ -3,7 +3,7 @@
 ## Status
 
 - [x] **Phase 1** — CLI core: dispatch, env precedence, exit codes, relative times, `--limit`, auth file (commit `2abdc23`)
-- [ ] **Phase 2** — TOON output, projection, truncation, structured errors, home view
+- [x] **Phase 2** — TOON output, projection, truncation, structured errors, home view (commit `72d27b8`)
 - [ ] **Phase 3** — `dogfetch summary` (Aggregate API)
 - [ ] **Phase 4** — `dogfetch patterns` (drain-style clustering)
 - [ ] **Phase 5** — Claude Code plugin + binary wrapper
@@ -39,7 +39,15 @@ Implemented in commit `2abdc23`:
 
 Verified: all tests pass; exit-code matrix confirmed (version→0, bare→2, badflag→2, unknown cmd→2, missing auth→1, bad time→2, neg limit→2, bad env value→2, -h→0); legacy `dogfetch --query … --format ndjson` invocation unchanged.
 
-## Phase 2 — TOON output, projection, truncation, structured errors, home view
+## Phase 2 — TOON output, projection, truncation, structured errors, home view ✅ DONE
+
+Implemented as planned, with these notes:
+
+- TOON quoting only triggers on `": "` / trailing colon (not bare `:`), so timestamps and URLs stay unquoted.
+- `--cursor` now allowed with toon as well as ndjson (only json is rejected).
+- Bare `dogfetch` changed from exit 2 to the exit-0 home view (intended; supersedes the Phase 1 matrix entry).
+- e2e tests point the SDK at httptest via DD_SITE accepting a full `http(s)://` URL.
+- Measured on a 50-log mock with realistic nested attributes: toon stdout is 9,176 bytes vs 33,320 ndjson (~72% reduction). Real-query comparison still worth a spot-check once creds are at hand.
 
 - New `internal/toon/` encoder (D3) with golden tests (`testdata/*.toon`): `Scalar()`, `Table(name, fields, rows)`, quoting/escaping rules.
 - New `internal/project/` (D4): projector + attribute-path resolution over typed fields and `AdditionalProperties`.

@@ -20,10 +20,8 @@ func Execute() int {
 	args := os.Args[1:]
 
 	if len(args) == 0 {
-		// Bare invocation: fall through to fetch, which reports the
-		// missing --query as a usage error. Replaced by the home view
-		// in a later phase.
-		return runFetch(args)
+		// AXI content-first home view: live state, not a usage manual.
+		return runHome()
 	}
 
 	sub, rest := args[0], args[1:]
@@ -36,6 +34,8 @@ func Execute() int {
 	switch sub {
 	case "fetch":
 		return runFetch(rest)
+	case "auth":
+		return runAuth()
 	case "version":
 		fmt.Println(version.Info())
 		return exitOK
@@ -50,6 +50,7 @@ func printRootUsage(w *os.File) {
 	fmt.Fprintf(w, "dogfetch - Fetch logs from Datadog\n\n")
 	fmt.Fprintf(w, "Usage:\n")
 	fmt.Fprintf(w, "  dogfetch fetch --query 'service:web status:error'   Fetch logs (default command)\n")
+	fmt.Fprintf(w, "  dogfetch auth                                       Credential status and setup help\n")
 	fmt.Fprintf(w, "  dogfetch version                                    Print version information\n\n")
 	fmt.Fprintf(w, "Run 'dogfetch fetch --help' for command options.\n")
 }

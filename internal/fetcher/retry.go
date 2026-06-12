@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/jtzemp/dogfetch/internal/axierr"
 )
 
 const (
@@ -105,20 +107,29 @@ func ShouldRetry(attempt int, err *RetryableError) (bool, time.Duration) {
 	return true, ExponentialBackoff(attempt)
 }
 
-// FormatRetryError creates a user-friendly error message
+// FormatRetryError translates a failed request into a structured,
+// agent-actionable error.
 func FormatRetryError(err error, httpResp *http.Response) error {
 	if httpResp == nil {
-		return fmt.Errorf("network error: %w", err)
+		return axierr.Runtime("network_error", fmt.Sprintf("network error: %v", err),
+			"Check connectivity and DD_SITE (current default: datadoghq.com)")
 	}
 
 	switch httpResp.StatusCode {
 	case 401:
-		return fmt.Errorf("authentication failed: check DD_API_KEY and DD_APP_KEY")
+		return axierr.Runtime("auth_failed",
+			"authentication failed: Datadog rejected DD_API_KEY/DD_APP_KEY (HTTP 401)",
+			axierr.AuthHelp()...)
 	case 403:
-		return fmt.Errorf("permission denied: check your API key has logs_read_data permission")
+		return axierr.Runtime("permission_denied",
+			"permission denied: the Application key lacks the logs_read_data permission (HTTP 403)",
+			axierr.AuthHelp()...)
 	case 429:
-		return fmt.Errorf("rate limit exceeded: %w", err)
+		return axierr.Runtime("rate_limited",
+			"Datadog rate limit exceeded after retries",
+			"Wait a minute, then rerun; lower --pageSize or narrow the time range")
 	default:
-		return fmt.Errorf("API error (status %d): %w", httpResp.StatusCode, err)
+		return axierr.Runtime("api_error",
+			fmt.Sprintf("Datadog API error (HTTP %d): %v", httpResp.StatusCode, err))
 	}
 }

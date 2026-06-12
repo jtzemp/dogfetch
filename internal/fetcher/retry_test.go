@@ -271,7 +271,7 @@ func TestFormatRetryError(t *testing.T) {
 			name:     "500 server error",
 			err:      errors.New("internal server error"),
 			httpResp: &http.Response{StatusCode: 500},
-			wantMsg:  "API error (status 500)",
+			wantMsg:  "API error (HTTP 500)",
 		},
 	}
 

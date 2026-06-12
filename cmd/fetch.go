@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 
+	"github.com/jtzemp/dogfetch/internal/axierr"
 	"github.com/jtzemp/dogfetch/internal/cli"
 	"github.com/jtzemp/dogfetch/internal/config"
 	"github.com/jtzemp/dogfetch/internal/fetcher"
@@ -34,9 +35,9 @@ func runFetch(args []string) int {
 	to := fs.String("to", "", "End date/time (default: now)")
 	pageSize := fs.Int("pageSize", 1000, "Results per page (max 5000)")
 	limit := fs.Int("limit", 0, "Stop after this many logs (0 = unlimited)")
-	fields := fs.String("fields", "", "Comma-separated fields to include in output")
+	fields := fs.String("fields", "", "Comma-separated fields to include in output (default: timestamp,status,service,message for toon)")
 	output := fs.String("output", "", "Output file path (default: stdout)")
-	format := fs.String("format", "ndjson", "Output format: json or ndjson")
+	format := fs.String("format", "", "Output format: toon, json, or ndjson (default: toon on stdout, ndjson with --output)")
 	cursor := fs.String("cursor", "", "Page cursor for resuming")
 	appendFlag := fs.Bool("append", false, "Append to output file (ndjson only)")
 	errorsOut := fs.String("errors-out", "", "Write errors to file (default: stderr)")
@@ -75,8 +76,18 @@ func runFetch(args []string) int {
 
 	// Flag > env > default precedence
 	if err := cli.ApplyEnvDefaults(fs, fetchEnvDefaults); err != nil {
-		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
-		return exitUsage
+		return fail(*format, axierr.Usage("bad_env", err.Error(),
+			"Check DOGFETCH_* environment variables for invalid values"))
+	}
+
+	// Default format (D6): agent-friendly toon on stdout, lossless
+	// ndjson when exporting to a file.
+	if *format == "" {
+		if *output != "" {
+			*format = "ndjson"
+		} else {
+			*format = "toon"
+		}
 	}
 
 	// Setup error output
@@ -84,8 +95,8 @@ func runFetch(args []string) int {
 	if *errorsOut != "" {
 		f, err := os.OpenFile(*errorsOut, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to open error output file: %v\n", err)
-			return exitError
+			return fail(*format, axierr.Runtime("bad_errors_out",
+				fmt.Sprintf("failed to open --errors-out file: %v", err)))
 		}
 		defer f.Close()
 		errOut = f
@@ -117,8 +128,8 @@ func runFetch(args []string) int {
 	if *from != "" {
 		parsedFrom, err := config.ParseTime(*from)
 		if err != nil {
-			fmt.Fprintf(errOut, "Error parsing --from: %v\n", err)
-			return exitUsage
+			return fail(*format, axierr.Usage("bad_time", fmt.Sprintf("invalid --from: %v", err),
+				"Use RFC3339 (2026-06-11T00:00:00Z), Unix seconds, or relative like 15m/2h/3d"))
 		}
 		cfg.From = parsedFrom
 	} else {
@@ -128,30 +139,27 @@ func runFetch(args []string) int {
 	if *to != "" {
 		parsedTo, err := config.ParseTime(*to)
 		if err != nil {
-			fmt.Fprintf(errOut, "Error parsing --to: %v\n", err)
-			return exitUsage
+			return fail(*format, axierr.Usage("bad_time", fmt.Sprintf("invalid --to: %v", err),
+				"Use RFC3339 (2026-06-11T00:00:00Z), Unix seconds, or relative like 15m/2h/3d"))
 		}
 		cfg.To = parsedTo
 	}
 
 	// Validate config
 	if err := cfg.ValidateUsage(); err != nil {
-		fmt.Fprintf(errOut, "Configuration error: %v\n", err)
-		fs.Usage()
-		return exitUsage
+		return fail(*format, axierr.Usage("usage", err.Error(),
+			"dogfetch fetch --query 'service:web status:error' --from 2h --limit 100"))
 	}
 
 	if err := cfg.ValidateAuth(); err != nil {
-		fmt.Fprintf(errOut, "Authentication error: %v\n", err)
-		fmt.Fprintf(errOut, "Set DD_API_KEY and DD_APP_KEY in the environment or in ~/.config/dogfetch/env\n")
-		return exitError
+		return fail(*format, axierr.Runtime("auth_missing", err.Error(), axierr.AuthHelp()...))
 	}
 
 	// Create fetcher
 	f, err := fetcher.New(cfg, errOut)
 	if err != nil {
-		fmt.Fprintf(errOut, "Failed to create fetcher: %v\n", err)
-		return exitError
+		return fail(*format, axierr.Runtime("init_failed",
+			fmt.Sprintf("failed to create fetcher: %v", err)))
 	}
 
 	// Setup signal handling for graceful shutdown
@@ -171,10 +179,21 @@ func runFetch(args []string) int {
 	// Execute fetch
 	if _, err := f.Fetch(ctx); err != nil {
 		fmt.Fprintf(errOut, "Fetch failed: %v\n", err)
-		return exitError
+		var ae *axierr.Error
+		if !errors.As(err, &ae) {
+			ae = axierr.Runtime("fetch_failed", err.Error())
+		}
+		return fail(*format, ae)
 	}
 
 	return exitOK
+}
+
+// fail renders a structured error on stdout (per AXI) and returns its
+// exit code.
+func fail(format string, e *axierr.Error) int {
+	axierr.Render(os.Stdout, format, e)
+	return e.Exit
 }
 
 func splitFields(s string) []string {

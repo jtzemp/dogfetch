@@ -206,7 +206,7 @@ func TestValidate(t *testing.T) {
 			errMsg:  "--append only works with",
 		},
 		{
-			name: "cursor without ndjson",
+			name: "cursor with json",
 			config: Config{
 				Query:    "service:web",
 				APIKey:   "test-api-key",
@@ -216,7 +216,18 @@ func TestValidate(t *testing.T) {
 				Cursor:   "test-cursor",
 			},
 			wantErr: true,
-			errMsg:  "--cursor only works with",
+			errMsg:  "--cursor does not work with --format json",
+		},
+		{
+			name: "cursor with toon allowed",
+			config: Config{
+				Query:    "service:web",
+				APIKey:   "test-api-key",
+				AppKey:   "test-app-key",
+				PageSize: 1000,
+				Format:   "toon",
+				Cursor:   "test-cursor",
+			},
 		},
 		{
 			name: "from after to",

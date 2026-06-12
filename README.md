@@ -13,13 +13,22 @@ export DD_APP_KEY=your_app_key
 
 dogfetch --query 'service:web status:error' \
   --from '2024-01-01T00:00:00Z' \
-  --to '2024-01-02T00:00:00Z' | jq -r '.attributes.message'
+  --to '2024-01-02T00:00:00Z' --format ndjson | jq -r '.attributes.message'
 ```
+
+> [!IMPORTANT]
+> **Breaking change:** when writing to **stdout**, the default output format is now
+> [TOON](https://toonformat.dev) (a compact, agent-friendly tabular format) with a
+> minimal field projection (`timestamp,status,service,message`). Pipelines that
+> expect JSON lines on stdout should pass `--format ndjson` or set
+> `DOGFETCH_FORMAT=ndjson`. File export with `--output` still defaults to lossless
+> NDJSON — nothing changes there.
 
 ## Features
 
 - **Simple query interface** - Fetch logs using Datadog's query syntax
-- **Flexible output formats** - JSON or NDJSON (newline-delimited JSON)
+- **Agent-friendly by default** - Compact TOON output with field projection on stdout (~70% smaller than raw JSON)
+- **Flexible output formats** - TOON, JSON, or NDJSON (newline-delimited JSON)
 - **Memory efficient streaming** - NDJSON mode streams results to disk with minimal memory usage
 - **Pagination checkpoint/resume** - Save progress and resume from where you left off if interrupted
 - **Configurable time ranges** - Query logs from specific time windows
@@ -128,14 +137,21 @@ dogfetch --query 'service:database' --format json --output db-logs.json
     When not specified, logs are written to stdout and progress to stderr
 
 --format string
-    Output format: "json" or "ndjson" (default "ndjson")
+    Output format: "toon", "json", or "ndjson"
+    (default: "toon" on stdout, "ndjson" with --output)
 
+    toon   - Compact tabular format with field projection, built for agents
     json   - Single JSON array, all data loaded into memory
     ndjson - Newline-delimited JSON, streams as it fetches (low memory)
 
+--fields string
+    Comma-separated fields to include in output
+    (toon default: timestamp,status,service,message; any Datadog
+    attribute path works, e.g. http.status_code)
+
 --cursor string
     Page cursor position for resuming from a specific point
-    Only works with streamable formats (ndjson)
+    Works with ndjson and toon (not json)
 
 --append
     Append to output file instead of overwriting

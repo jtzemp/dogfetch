@@ -65,7 +65,7 @@ func (w *TOONWriter) Finalize(meta Meta) error {
 	}
 
 	enc.Scalar("count", len(w.rows))
-	enc.Table("logs", w.proj.Fields, w.rows)
+	enc.Table("logs", w.proj.Fields, toon.StringRows(w.rows))
 
 	var help []string
 	if w.proj.Truncated {

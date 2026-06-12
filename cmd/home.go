@@ -17,6 +17,7 @@ func runHome() int {
 	enc.Scalar("description", "Fetch Datadog logs as agent-friendly TOON (json/ndjson for full export)")
 	enc.Scalar("auth", authStatus(config.ResolveCredentials()))
 	enc.List("help", []string{
+		"dogfetch summary --query 'service:web' --from 2h   (counts by status/service + timeline, no raw logs)",
 		"dogfetch fetch --query 'service:web status:error' --from 2h --limit 100",
 		"dogfetch fetch --query '<query>' --output logs.ndjson   (full export)",
 		"dogfetch fetch --fields timestamp,status,service,message,host --query '<query>'",

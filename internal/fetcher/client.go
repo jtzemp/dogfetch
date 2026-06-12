@@ -17,9 +17,10 @@ type Client struct {
 
 // NewClient creates a new Datadog client
 func NewClient(apiKey, appKey, site string) *Client {
+	// Neither ListLogsGet nor AggregateLogs is in the SDK's unstable
+	// operations registry, so no SetUnstableOperationEnabled needed.
 	config := datadog.NewConfiguration()
 	if site != "" {
-		config.SetUnstableOperationEnabled("v2.ListLogsGet", true)
 		// Set the server based on site. A full URL (used by tests to
 		// point at a local mock) is taken as-is.
 		url := "https://api." + site

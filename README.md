@@ -28,6 +28,7 @@ dogfetch --query 'service:web status:error' \
 
 - **Simple query interface** - Fetch logs using Datadog's query syntax
 - **Agent-friendly by default** - Compact TOON output with field projection on stdout (~70% smaller than raw JSON)
+- **Pre-computed aggregates** - `dogfetch summary` for counts by status/service and a timeline, without fetching raw logs
 - **Flexible output formats** - TOON, JSON, or NDJSON (newline-delimited JSON)
 - **Memory efficient streaming** - NDJSON mode streams results to disk with minimal memory usage
 - **Pagination checkpoint/resume** - Save progress and resume from where you left off if interrupted
@@ -95,13 +96,13 @@ export DD_SITE=datadoghq.eu
 ### Basic Usage
 
 ```bash
-# Fetch logs matching a query (outputs to stdout)
+# Fetch logs matching a query (compact TOON on stdout)
 dogfetch --query 'service:web status:error'
 
-# Pipe to a file
-dogfetch --query 'service:web status:error' > logs.ndjson
+# Pipe full JSON lines to a file
+dogfetch --query 'service:web status:error' --format ndjson > logs.ndjson
 
-# Or save directly to a file
+# Or save directly to a file (defaults to lossless ndjson)
 dogfetch --query 'service:web status:error' --output logs.ndjson
 
 # Specify a custom time range
@@ -110,6 +111,32 @@ dogfetch --query 'service:api' --from '2024-01-01T00:00:00Z' --to '2024-01-02T00
 # Use JSON format and save to file
 dogfetch --query 'service:database' --format json --output db-logs.json
 ```
+
+### Summaries (no raw logs)
+
+`dogfetch summary` answers "how many, what kind, when" with one fast call to
+Datadog's Aggregate API — no pagination, no raw log payloads:
+
+```bash
+dogfetch summary --query 'service:web' --from 2h
+```
+
+```
+total: 4523
+by_status[3]{status,count}:
+  error,3200
+  warn,1000
+  info,323
+by_service[2]{service,count}:
+  web,4000
+  api,523
+timeline[24]{time,count}:
+  2026-06-11T10:00:00Z,2100
+  ...
+```
+
+Group-bys show the top 25 by count (a help hint reports the full distinct
+count when truncated). `--format json` emits the same data as a JSON object.
 
 ### Command Line Options
 

@@ -4,7 +4,7 @@
 
 - [x] **Phase 1** — CLI core: dispatch, env precedence, exit codes, relative times, `--limit`, auth file (commit `2abdc23`)
 - [x] **Phase 2** — TOON output, projection, truncation, structured errors, home view (commit `076a9f3`)
-- [ ] **Phase 3** — `dogfetch summary` (Aggregate API)
+- [x] **Phase 3** — `dogfetch summary` (Aggregate API)
 - [ ] **Phase 4** — `dogfetch patterns` (drain-style clustering)
 - [ ] **Phase 5** — Claude Code plugin + binary wrapper
 - [ ] **Phase 6** — Hardening & polish
@@ -58,7 +58,16 @@ Implemented as planned, with these notes:
 
 **Verify:** golden tests; e2e via `httptest` mock of `/api/v2/logs/events` asserting full stdout bytes for results/empty/truncated/401 + exit codes; manual token comparison toon vs ndjson on a real query (~expect >60% reduction with projection).
 
-## Phase 3 — `dogfetch summary` (Aggregate API — no pagination, fast)
+## Phase 3 — `dogfetch summary` (Aggregate API — no pagination, fast) ✅ DONE
+
+Implemented as planned, with these notes:
+
+- Three aggregate requests (by status, by service, timeline). Each facet request adds a `__total__` group-by bucket carrying two computes: c0 = total count, c1 = facet cardinality — that's where `total:` and the "top 25 of N" annotation come from (annotation rendered as a `help[]` hint per AXI §9, not inline).
+- Timeline interval picked by log-scale nearest to a ~12-bucket target across 1m/5m/1h/1d, whole days beyond.
+- `SetUnstableOperationEnabled` removed outright: neither `v2.ListLogsGet` nor `AggregateLogs` is in the SDK's unstable-operation registry, so the call was a no-op.
+- help[] suggests `fetch --limit` drill-downs only; the `patterns` suggestion lands with Phase 4 so we never advertise a command that doesn't exist yet.
+- summary supports `--format toon|json` (no ndjson — single aggregate object, not a stream).
+- Manual totals-vs-Datadog-UI check still pending creds.
 
 - New `cmd/summary.go`, `internal/fetcher/aggregate.go` using SDK `LogsApi.AggregateLogs` (`POST /api/v2/logs/analytics/aggregate`): count grouped by `status` and `service` (limit 25, annotate `(top 25 of N)` when truncated), plus a timeseries bucketed to ~12 intervals (rounded to 1m/5m/1h/1d).
 - Output: `total:`, `by_status[…]`, `by_service[…]`, `timeline[…]`, `help[]` suggesting `patterns`/`fetch --limit` drill-downs. Reuse `retry.go`. Fix the misplaced `SetUnstableOperationEnabled` in `client.go` while there.

@@ -32,11 +32,11 @@ func TestLogsOutput(t *testing.T) {
 	var buf bytes.Buffer
 	e := NewEncoder(&buf)
 	e.Scalar("count", 3)
-	e.Table("logs", []string{"timestamp", "status", "service", "message"}, [][]string{
+	e.Table("logs", []string{"timestamp", "status", "service", "message"}, StringRows([][]string{
 		{"2026-06-11T10:00:00Z", "error", "web", "connection refused"},
 		{"2026-06-11T10:00:01Z", "warn", "api", `timeout after 5s, retrying`},
 		{"2026-06-11T10:00:02Z", "info", "web", `user "bob" logged in`},
-	})
+	}))
 	e.List("help", []string{
 		"Widen output with --fields timestamp,status,service,message,host",
 		"Resume with --cursor '<cursor>'",
@@ -89,6 +89,22 @@ func TestQuote(t *testing.T) {
 		if got := Quote(tt.in); got != tt.want {
 			t.Errorf("Quote(%q) = %s, want %s", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestTableNumericCells(t *testing.T) {
+	var buf bytes.Buffer
+	e := NewEncoder(&buf)
+	e.Table("by_status", []string{"status", "count"}, [][]any{
+		{"error", int64(3200)},
+		{"warn", int64(42)},
+	})
+	if err := e.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := "by_status[2]{status,count}:\n  error,3200\n  warn,42\n"
+	if got := buf.String(); got != want {
+		t.Errorf("numeric cells:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
 

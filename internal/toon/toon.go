@@ -55,16 +55,34 @@ func (e *Encoder) Scalar(key string, value any) {
 //	name[N]{f1,f2}:
 //	  v1,v2
 //
-// Each row must have len(fields) values; rows are quoted as needed.
-func (e *Encoder) Table(name string, fields []string, rows [][]string) {
+// Each row must have len(fields) cells. String cells are quoted as
+// needed; numeric cells render bare.
+func (e *Encoder) Table(name string, fields []string, rows [][]any) {
 	e.printf("%s[%d]{%s}:\n", name, len(rows), strings.Join(fields, ","))
 	for _, row := range rows {
-		quoted := make([]string, len(row))
+		cells := make([]string, len(row))
 		for i, v := range row {
-			quoted[i] = Quote(v)
+			if s, ok := v.(string); ok {
+				cells[i] = Quote(s)
+			} else {
+				cells[i] = fmt.Sprintf("%v", v)
+			}
 		}
-		e.printf("%s%s\n", indent, strings.Join(quoted, ","))
+		e.printf("%s%s\n", indent, strings.Join(cells, ","))
 	}
+}
+
+// StringRows converts projected string rows to Table cells.
+func StringRows(rows [][]string) [][]any {
+	out := make([][]any, len(rows))
+	for i, row := range rows {
+		cells := make([]any, len(row))
+		for j, v := range row {
+			cells[j] = v
+		}
+		out[i] = cells
+	}
+	return out
 }
 
 // List writes an AXI-style help block: a `name[N]:` header followed by

@@ -3,7 +3,7 @@
 ## Status
 
 - [x] **Phase 1** — CLI core: dispatch, env precedence, exit codes, relative times, `--limit`, auth file (commit `2abdc23`)
-- [x] **Phase 2** — TOON output, projection, truncation, structured errors, home view (commit `72d27b8`)
+- [x] **Phase 2** — TOON output, projection, truncation, structured errors, home view (commit `076a9f3`)
 - [ ] **Phase 3** — `dogfetch summary` (Aggregate API)
 - [ ] **Phase 4** — `dogfetch patterns` (drain-style clustering)
 - [ ] **Phase 5** — Claude Code plugin + binary wrapper

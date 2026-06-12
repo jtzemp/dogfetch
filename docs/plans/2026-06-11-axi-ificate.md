@@ -6,7 +6,7 @@
 - [x] **Phase 2** — TOON output, projection, truncation, structured errors, home view (commit `076a9f3`)
 - [x] **Phase 3** — `dogfetch summary` (Aggregate API) (commit `6ec1d73`)
 - [x] **Phase 4** — `dogfetch patterns` (drain-style clustering) (commit `dab4f3e`)
-- [ ] **Phase 5** — Claude Code plugin + binary wrapper
+- [x] **Phase 5** — Claude Code plugin + binary wrapper
 - [ ] **Phase 6** — Hardening & polish
 
 ## Context
@@ -90,7 +90,17 @@ Implemented as planned, with these notes:
 
 **Verify:** fixture corpora unit tests; shuffle-stability tolerance test.
 
-## Phase 5 — Claude Code plugin + binary wrapper
+## Phase 5 — Claude Code plugin + binary wrapper ✅ DONE
+
+Implemented as planned, with these notes:
+
+- Plugin schema re-verified against live docs (June 2026): `.claude-plugin/plugin.json` (name required; explicit semver `version` so users update on release, enforced by a new release.yml step that fails when plugin.json version ≠ tag) and `.claude-plugin/marketplace.json` (owner + plugins[{name, source: "./"}] for same-repo source). plugin.json set to 0.2.0 — next tag must be v0.2.0.
+- Wrapper verified against the real v0.1.1 release: resolves latest via GitHub API (24h cache, stale-cache fallback), downloads `dogfetch_<ver>_<Os>_<arch>.tar.gz` + checksums.txt, sha256-verifies, installs atomically (partial-then-rename) to `~/.cache/dogfetch/<ver>/`, execs. Tamper test (poisoned checksums.txt against a local mock server) rejects with the AXI error block, exit 1.
+- Version pin file lives at `~/.cache/dogfetch/pin` (written by `--self-update`), not in the plugin dir — plugin dirs are replaced on update.
+- `fail()` only runs at top level (never inside `$(...)`) so its stdout error block is never swallowed by command substitution; prerequisite checks (curl/wget, tar, sha256sum/shasum) run upfront for the same reason.
+- Wrapper exports `DOGFETCH_FORMAT=toon` unless already set.
+- Old hand-rolled SKILL.md instructions in README replaced by the plugin install; skill teaches summary → patterns → fetch --limit order.
+- Still manual (needs interactive Claude Code / a Mac): local `/plugin marketplace add jtzemp/dogfetch` smoke test, and a darwin-arm64 wrapper run.
 
 - `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (so `/plugin marketplace add jtzemp/dogfetch` works). **Verify schema against current Claude Code plugin docs at phase start.**
 - `skills/dogfetch/SKILL.md`: trigger-shaped description; teaches Datadog query syntax, the agent-optimal call order (**summary → patterns → fetch --limit**), auth setup, invocation via `"${CLAUDE_PLUGIN_ROOT}/scripts/dogfetch.sh"`.

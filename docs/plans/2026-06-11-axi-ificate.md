@@ -5,7 +5,7 @@
 - [x] **Phase 1** — CLI core: dispatch, env precedence, exit codes, relative times, `--limit`, auth file (commit `2abdc23`)
 - [x] **Phase 2** — TOON output, projection, truncation, structured errors, home view (commit `076a9f3`)
 - [x] **Phase 3** — `dogfetch summary` (Aggregate API) (commit `6ec1d73`)
-- [x] **Phase 4** — `dogfetch patterns` (drain-style clustering)
+- [x] **Phase 4** — `dogfetch patterns` (drain-style clustering) (commit `dab4f3e`)
 - [ ] **Phase 5** — Claude Code plugin + binary wrapper
 - [ ] **Phase 6** — Hardening & polish
 

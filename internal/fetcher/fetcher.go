@@ -21,25 +21,27 @@ type Fetcher struct {
 	errOut io.Writer
 }
 
-// New creates a new Fetcher
+// New creates a new Fetcher writing through the configured format.
 func New(cfg *config.Config, errOut io.Writer) (*Fetcher, error) {
-	if errOut == nil {
-		errOut = os.Stderr
-	}
-
-	client := NewClient(cfg.APIKey, cfg.AppKey, cfg.Site)
-
 	w, err := writer.New(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create writer: %w", err)
 	}
+	return NewWithWriter(cfg, w, errOut), nil
+}
 
+// NewWithWriter creates a Fetcher that feeds pages into a custom
+// writer (e.g. the patterns clusterer) instead of a format writer.
+func NewWithWriter(cfg *config.Config, w writer.Writer, errOut io.Writer) *Fetcher {
+	if errOut == nil {
+		errOut = os.Stderr
+	}
 	return &Fetcher{
-		client: client,
+		client: NewClient(cfg.APIKey, cfg.AppKey, cfg.Site),
 		config: cfg,
 		writer: w,
 		errOut: errOut,
-	}, nil
+	}
 }
 
 // Result summarizes a completed (or interrupted) fetch.

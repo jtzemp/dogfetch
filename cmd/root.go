@@ -36,6 +36,8 @@ func Execute() int {
 		return runFetch(rest)
 	case "summary":
 		return runSummary(rest)
+	case "patterns":
+		return runPatterns(rest)
 	case "auth":
 		return runAuth()
 	case "version":
@@ -53,6 +55,7 @@ func printRootUsage(w *os.File) {
 	fmt.Fprintf(w, "Usage:\n")
 	fmt.Fprintf(w, "  dogfetch fetch --query 'service:web status:error'   Fetch logs (default command)\n")
 	fmt.Fprintf(w, "  dogfetch summary --query 'service:web' --from 2h    Aggregates: total, by status/service, timeline\n")
+	fmt.Fprintf(w, "  dogfetch patterns --query 'service:web' --from 2h   Cluster messages into templates\n")
 	fmt.Fprintf(w, "  dogfetch auth                                       Credential status and setup help\n")
 	fmt.Fprintf(w, "  dogfetch version                                    Print version information\n\n")
 	fmt.Fprintf(w, "Run 'dogfetch fetch --help' for command options.\n")

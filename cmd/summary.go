@@ -160,6 +160,7 @@ func renderSummaryToon(s *fetcher.Summary, cfg *config.Config) int {
 			len(s.ByService), s.ServiceCardinality, queryDisplay))
 	}
 	help = append(help,
+		fmt.Sprintf("Group repetitive logs: dogfetch patterns --query '%s status:<status>'", queryDisplay),
 		fmt.Sprintf("See raw logs: dogfetch fetch --query '%s status:<status>' --limit 50", queryDisplay))
 	enc.List("help", help)
 

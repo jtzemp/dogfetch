@@ -99,8 +99,9 @@ func TestE2ESummaryToon(t *testing.T) {
 		"timeline[2]{time,count}:\n" +
 		"  2026-06-11T10:00:00Z,2100\n" +
 		"  2026-06-11T11:00:00Z,2423\n" +
-		"help[2]:\n" +
+		"help[3]:\n" +
 		"  by_service shows top 2 of 87 services; narrow with --query 'service:web service:<name>'\n" +
+		"  Group repetitive logs: dogfetch patterns --query 'service:web status:<status>'\n" +
 		"  See raw logs: dogfetch fetch --query 'service:web status:<status>' --limit 50\n"
 	assert.Equal(t, want, out)
 }

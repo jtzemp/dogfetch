@@ -18,6 +18,7 @@ func runHome() int {
 	enc.Scalar("auth", authStatus(config.ResolveCredentials()))
 	enc.List("help", []string{
 		"dogfetch summary --query 'service:web' --from 2h   (counts by status/service + timeline, no raw logs)",
+		"dogfetch patterns --query 'service:web status:error' --from 2h   (collapse repetitive logs into templates)",
 		"dogfetch fetch --query 'service:web status:error' --from 2h --limit 100",
 		"dogfetch fetch --query '<query>' --output logs.ndjson   (full export)",
 		"dogfetch fetch --fields timestamp,status,service,message,host --query '<query>'",

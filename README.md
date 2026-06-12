@@ -29,6 +29,7 @@ dogfetch --query 'service:web status:error' \
 - **Simple query interface** - Fetch logs using Datadog's query syntax
 - **Agent-friendly by default** - Compact TOON output with field projection on stdout (~70% smaller than raw JSON)
 - **Pre-computed aggregates** - `dogfetch summary` for counts by status/service and a timeline, without fetching raw logs
+- **Pattern clustering** - `dogfetch patterns` collapses thousands of repetitive logs into a handful of templates
 - **Flexible output formats** - TOON, JSON, or NDJSON (newline-delimited JSON)
 - **Memory efficient streaming** - NDJSON mode streams results to disk with minimal memory usage
 - **Pagination checkpoint/resume** - Save progress and resume from where you left off if interrupted
@@ -137,6 +138,27 @@ timeline[24]{time,count}:
 
 Group-bys show the top 25 by count (a help hint reports the full distinct
 count when truncated). `--format json` emits the same data as a JSON object.
+
+### Patterns (collapse repetitive logs)
+
+`dogfetch patterns` clusters messages drain-style: volatile tokens (numbers,
+hex ids, UUIDs, IPs, quoted values) become `<*>`, so a flood of similar logs
+reads as a few templates with counts:
+
+```bash
+dogfetch patterns --query 'service:web status:error' --from 2h
+```
+
+```
+scanned: 9421
+patterns[3]{count,first_seen,last_seen,pattern}:
+  8804,2026-06-11T08:01:12Z,2026-06-11T10:00:41Z,failed to process payment <*> for user <*> card_declined
+  601,2026-06-11T08:00:03Z,2026-06-11T09:58:59Z,connection to <*> timed out after <*>
+  16,2026-06-11T08:12:44Z,2026-06-11T09:40:02Z,schema migration completed successfully
+```
+
+Scans up to 10,000 logs by default (`--limit` to change), shows the top 50
+patterns (`--top`), and `--samples` adds one raw example per pattern.
 
 ### Command Line Options
 

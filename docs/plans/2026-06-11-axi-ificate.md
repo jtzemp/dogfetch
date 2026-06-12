@@ -5,7 +5,7 @@
 - [x] **Phase 1** — CLI core: dispatch, env precedence, exit codes, relative times, `--limit`, auth file (commit `2abdc23`)
 - [x] **Phase 2** — TOON output, projection, truncation, structured errors, home view (commit `076a9f3`)
 - [x] **Phase 3** — `dogfetch summary` (Aggregate API) (commit `6ec1d73`)
-- [ ] **Phase 4** — `dogfetch patterns` (drain-style clustering)
+- [x] **Phase 4** — `dogfetch patterns` (drain-style clustering)
 - [ ] **Phase 5** — Claude Code plugin + binary wrapper
 - [ ] **Phase 6** — Hardening & polish
 
@@ -74,7 +74,16 @@ Implemented as planned, with these notes:
 
 **Verify:** httptest mock with canned aggregate responses, golden toon output; manual totals vs Datadog UI.
 
-## Phase 4 — `dogfetch patterns` (drain-style clustering)
+## Phase 4 — `dogfetch patterns` (drain-style clustering) ✅ DONE
+
+Implemented as planned, with these notes:
+
+- Bucket key is **(exact token count, first stable token)** rather than a width-banded count: the 32-token cap already folds long messages into one length class, and exact-length buckets keep merging positional (no alignment heuristics). Merging is classic drain: `<*>` matches anything, differing positions widen to `<*>`, threshold 0.5.
+- Masking additions beyond the plan list: numbers with units/punctuation (`500ms`, `95%`, `10:30:00`, `128MiB`), and `key=value` tokens keep the key while masking a volatile value.
+- Catch-alls: `(other)` after the 1000-cluster cap, `(empty)` for blank messages; both sort last.
+- `--top` (default 50) bounds output rows per AXI minimal-default schemas, with a help hint exposing the full pattern count; `--samples` appends a sample column.
+- Fetcher gained `NewWithWriter` so patterns streams pages into the clusterer through the existing writer interface (forced timestamp+message read; no format writer involved).
+- summary/home/root help now cross-link patterns (the Phase 3 deferral).
 
 - New `internal/cluster/`: tokenize on whitespace (cap 32 tokens); mask volatile tokens (digits, hex≥8, UUIDs, IPs, quoted values) → `<*>`; bucket by (token-count band, first stable token); merge at ≥0.5 positional similarity; cap 1000 clusters + `(other)` overflow → memory O(clusters), streaming-safe.
 - New `cmd/patterns.go`: reuses fetcher with forced timestamp+message projection, default scan cap 10000. Output sorted by count desc: `patterns[N]{count,first_seen,last_seen,pattern}`; `--samples` adds a sample per pattern; `help[]` suggests literal-quoted drill-down queries.

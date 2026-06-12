@@ -6,7 +6,7 @@
 - [x] **Phase 2** — TOON output, projection, truncation, structured errors, home view (commit `076a9f3`)
 - [x] **Phase 3** — `dogfetch summary` (Aggregate API) (commit `6ec1d73`)
 - [x] **Phase 4** — `dogfetch patterns` (drain-style clustering) (commit `dab4f3e`)
-- [x] **Phase 5** — Claude Code plugin + binary wrapper
+- [x] **Phase 5** — Claude Code plugin + binary wrapper (commit `8e5d2ce`)
 - [ ] **Phase 6** — Hardening & polish
 
 ## Context

@@ -7,7 +7,7 @@
 - [x] **Phase 3** — `dogfetch summary` (Aggregate API) (commit `6ec1d73`)
 - [x] **Phase 4** — `dogfetch patterns` (drain-style clustering) (commit `dab4f3e`)
 - [x] **Phase 5** — Claude Code plugin + binary wrapper (commit `8e5d2ce`)
-- [x] **Phase 6** — Hardening & polish
+- [x] **Phase 6** — Hardening & polish (commit `ec12d87`)
 
 ## Context
 

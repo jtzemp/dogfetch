@@ -108,6 +108,19 @@ export DD_SITE=datadoghq.eu
 
 ## Usage
 
+### Commands
+
+| Command | What it does |
+|---|---|
+| `dogfetch fetch` | Fetch raw log lines (the default — `dogfetch --query …` is shorthand) |
+| `dogfetch summary` | Counts by status/service + a timeline, via the Aggregate API (no raw logs) |
+| `dogfetch patterns` | Cluster messages into templates so repetitive logs collapse to a few rows |
+| `dogfetch auth` | Show credential status and setup help |
+| `dogfetch version` | Print version information |
+| `dogfetch` (no args) | Live home view: tool path, auth status, example commands |
+
+For agents the cheap-to-expensive order is **`summary` → `patterns` → `fetch --limit`**.
+
 ### Basic Usage
 
 ```bash
@@ -174,7 +187,7 @@ patterns[3]{count,first_seen,last_seen,pattern}:
 Scans up to 10,000 logs by default (`--limit` to change), shows the top 50
 patterns (`--top`), and `--samples` adds one raw example per pattern.
 
-### Command Line Options
+### Command Line Options (fetch)
 
 ```
 --query string
@@ -183,6 +196,10 @@ patterns (`--top`), and `--samples` adds one raw example per pattern.
 
 --index string
     Which index to read from (default "main")
+
+--limit int
+    Stop after this many logs (0 = unlimited). Pairs with TOON output to
+    keep agent context small; prints a resume cursor when more remain.
 
 --from string
     Start date/time (default: 24 hours ago)
@@ -228,15 +245,16 @@ patterns (`--top`), and `--samples` adds one raw example per pattern.
 
 #### Streaming Large Datasets
 
-NDJSON format (the default) streams results as they're fetched, minimizing memory usage:
+NDJSON (the default when writing to a file with `--output`) streams results as
+they're fetched, minimizing memory usage:
 
 ```bash
 dogfetch --query 'service:api' \
   --output large-export.ndjson \
   --pageSize 5000
 
-# Or pipe directly to another tool
-dogfetch --query 'service:api' | jq -r '.attributes.message'
+# Or pipe directly to another tool (force ndjson — stdout defaults to TOON)
+dogfetch --query 'service:api' --format ndjson | jq -r '.attributes.message'
 ```
 
 #### Resume After Interruption
@@ -277,7 +295,25 @@ dogfetch --query 'service:web' --errors-out progress.log > logs.ndjson
 
 ## Output Formats
 
-### NDJSON (default)
+### TOON (default on stdout)
+
+A compact tabular format ([TOON](https://toonformat.dev)) with a default field
+projection (`timestamp,status,service,message`). Built for agents — roughly 70%
+smaller than the equivalent raw JSON. Read it directly; no parsing needed:
+
+```
+count: 2
+logs[2]{timestamp,status,service,message}:
+  2026-06-11T10:00:00Z,error,web,connection refused
+  2026-06-11T10:00:01Z,warn,api,"timeout after 5s, retrying"
+help[1]:
+  Add fields with --fields timestamp,status,service,message,host (any Datadog attribute path works, e.g. http.status_code)
+```
+
+Widen columns with `--fields`. For lossless full objects, use `--format ndjson`
+or `--format json` (or `--output`, which defaults to ndjson).
+
+### NDJSON (default with `--output`)
 
 Each log is a separate JSON object on its own line:
 
@@ -303,8 +339,8 @@ jq 'select(.attributes.status == "error")' logs.ndjson
 # Extract specific field
 jq -r '.attributes.message' logs.ndjson
 
-# Stream and process in real-time
-dogfetch --query 'service:web' | jq -r '.attributes.message'
+# Stream and process in real-time (force ndjson — stdout defaults to TOON)
+dogfetch --query 'service:web' --format ndjson | jq -r '.attributes.message'
 ```
 
 ### JSON
@@ -402,21 +438,26 @@ Contributions welcome! Please open an issue or PR.
 
 Releases are automated using GitHub Actions and GoReleaser. To create a new release:
 
-1. **Create and push a tag:**
+1. **Bump `.claude-plugin/plugin.json` `version` to match the tag**, then commit.
+   The release workflow fails if the plugin version and tag disagree (this is
+   what makes plugin users actually receive the update).
+
+2. **Create and push a tag:**
    ```bash
-   git tag -a v1.0.0 -m "Release v1.0.0"
-   git push origin v1.0.0
+   git tag -a v0.2.0 -m "Release v0.2.0"
+   git push origin v0.2.0
    ```
 
-2. **GitHub Actions will automatically:**
+3. **GitHub Actions will automatically:**
+   - Check the plugin version matches the tag and the wrapper script parses
    - Run all tests
    - Build binaries for Linux, macOS, and Windows (amd64 and arm64)
    - Create a GitHub release with:
      - Release notes from commits since last tag
      - Pre-built binaries
-     - Checksums for verification
+     - Checksums for verification (used by the plugin wrapper's sha256 check)
 
-3. **Manual release (optional):**
+4. **Manual release (optional):**
    ```bash
    # Install goreleaser
    go install github.com/goreleaser/goreleaser@latest

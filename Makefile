@@ -1,4 +1,4 @@
-.PHONY: build install test clean version
+.PHONY: build install test test-cover golden-update lint clean version all build-all build-linux build-darwin build-windows dev
 
 # Binary name
 BINARY_NAME=dogfetch
@@ -39,6 +39,14 @@ test:
 # Run tests with coverage
 test-cover:
 	$(GOTEST) -v -cover ./...
+
+# Regenerate golden test fixtures (e.g. internal/toon/testdata/*.toon)
+golden-update:
+	$(GOTEST) ./internal/toon -update
+
+# Run the linter (matches CI: golangci-lint)
+lint:
+	golangci-lint run
 
 # Clean build artifacts
 clean:

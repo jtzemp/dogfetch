@@ -7,7 +7,7 @@
 - [x] **Phase 3** — `dogfetch summary` (Aggregate API) (commit `6ec1d73`)
 - [x] **Phase 4** — `dogfetch patterns` (drain-style clustering) (commit `dab4f3e`)
 - [x] **Phase 5** — Claude Code plugin + binary wrapper (commit `8e5d2ce`)
-- [ ] **Phase 6** — Hardening & polish
+- [x] **Phase 6** — Hardening & polish
 
 ## Context
 
@@ -109,11 +109,17 @@ Implemented as planned, with these notes:
 
 **Verify:** `bash -n`; run wrapper on a Mac against a real release; tamper-test sha256 rejection; local `/plugin marketplace add` and confirm skill loads and executes end-to-end.
 
-## Phase 6 — Hardening & polish
+## Phase 6 — Hardening & polish ✅ DONE
 
-- Token-count regression test (50-log fixture: TOON ≤ 0.65× JSON by len/4 approximation) wired into CI.
-- `cmd`-level e2e tests covering the 0/1/2 exit-code matrix for all subcommands.
-- README rewrite (agent usage, breaking-change note), `make golden-update` target.
+Implemented as planned, with these notes:
+
+- `internal/writer/token_regression_test.go`: 50-log fixture with realistic nested attributes; projected TOON vs lossless JSON by len/4 token approximation. Ceiling 0.65×; measured 0.159× (2516 vs 15844 tokens). Runs in CI automatically via `go test ./...`.
+- `cmd/exitcode_test.go`: drives the full dispatch path through `Execute()` (sets os.Args) — 15-case 0/1/2 matrix across fetch/summary/patterns/auth/version/home/unknown/help, plus a missing-auth → exit 1 set and a 401 → exit 1 set for all three API subcommands. A combined httptest handler serves both the list and aggregate endpoints. `clearAuth` also clears `XDG_CONFIG_HOME` (not just `HOME`) so the env-file fallback can't leak real creds in CI.
+- `make golden-update` (`go test ./internal/toon -update`) and `make lint` (`golangci-lint run`) targets added; `.PHONY` completed for all targets.
+- README: added a Commands table (verbs + cheap-first order), `--limit` in the fetch options, a TOON-first Output Formats section, fixed every stale `| jq` stdout example to pass `--format ndjson` (stdout now defaults to TOON), and a release step requiring plugin.json version == tag (the Phase 5 CI gate).
+- Whole suite passes under `-race`; lint clean.
+
+Remaining manual items carried from Phase 5 (need interactive Claude Code / a Mac / real creds): live `/plugin marketplace add`, darwin-arm64 wrapper run, and a totals-vs-Datadog-UI spot check. None block tagging v0.2.0.
 
 ## Risks
 

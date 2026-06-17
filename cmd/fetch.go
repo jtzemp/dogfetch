@@ -151,6 +151,11 @@ func runFetch(args []string) int {
 			"dogfetch fetch --query 'service:web status:error' --from 2h --limit 100"))
 	}
 
+	if err := config.ValidateSite(cfg.Site); err != nil {
+		return fail(*format, axierr.Usage("bad_site", err.Error(),
+			"Set DD_SITE to a domain like datadoghq.com or datadoghq.eu"))
+	}
+
 	if err := cfg.ValidateAuth(); err != nil {
 		return fail(*format, axierr.Runtime("auth_missing", err.Error(), axierr.AuthHelp()...))
 	}

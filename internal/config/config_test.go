@@ -271,3 +271,33 @@ func TestDefaultFrom(t *testing.T) {
 	assert.False(t, got.Before(expectedBefore.Add(-time.Second)))
 	assert.False(t, got.After(expectedAfter.Add(time.Second)))
 }
+
+func TestValidateSite(t *testing.T) {
+	valid := []string{
+		"",
+		"datadoghq.com",
+		"datadoghq.eu",
+		"us3.datadoghq.com",
+		"us5.datadoghq.com",
+		"ap1.datadoghq.com",
+		"ddog-gov.com",
+	}
+	for _, s := range valid {
+		assert.NoError(t, ValidateSite(s), "site %q should be valid", s)
+	}
+
+	// A full URL must be rejected: keys are attached to every request,
+	// so a URL site would redirect credential-bearing requests.
+	invalid := []string{
+		"https://attacker.example",
+		"http://127.0.0.1:8080",
+		"https://api.datadoghq.com",
+		"datadoghq.com/path",
+		"datadoghq.com:443",
+		"has space.com",
+		"nodot",
+	}
+	for _, s := range invalid {
+		assert.Error(t, ValidateSite(s), "site %q should be rejected", s)
+	}
+}

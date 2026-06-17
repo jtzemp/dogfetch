@@ -97,6 +97,11 @@ func runSummary(args []string) int {
 			fmt.Sprintf("--from (%s) must be before --to (%s)", cfg.From, cfg.To)))
 	}
 
+	if err := config.ValidateSite(cfg.Site); err != nil {
+		return fail(*format, axierr.Usage("bad_site", err.Error(),
+			"Set DD_SITE to a domain like datadoghq.com or datadoghq.eu"))
+	}
+
 	if err := cfg.ValidateAuth(); err != nil {
 		return fail(*format, axierr.Runtime("auth_missing", err.Error(), axierr.AuthHelp()...))
 	}

@@ -57,12 +57,15 @@ func runFetchCapture(t *testing.T, args ...string) (string, int) {
 }
 
 // setupEnv points the CLI at a mock server and clears DOGFETCH_* so a
-// developer's environment can't leak into assertions.
+// developer's environment can't leak into assertions. The mock URL goes
+// through DOGFETCH_API_URL (the internal test seam), not DD_SITE, which
+// only accepts real Datadog domains.
 func setupEnv(t *testing.T, serverURL string) {
 	t.Helper()
 	t.Setenv("DD_API_KEY", "test-api-key")
 	t.Setenv("DD_APP_KEY", "test-app-key")
-	t.Setenv("DD_SITE", serverURL)
+	t.Setenv("DD_SITE", "")
+	t.Setenv("DOGFETCH_API_URL", serverURL)
 	for _, v := range []string{"DOGFETCH_FORMAT", "DOGFETCH_FIELDS", "DOGFETCH_LIMIT", "DOGFETCH_PAGESIZE", "DOGFETCH_INDEX"} {
 		t.Setenv(v, "")
 	}

@@ -57,8 +57,10 @@ func clearAuth(t *testing.T) {
 	t.Helper()
 	t.Setenv("DD_API_KEY", "")
 	t.Setenv("DD_APP_KEY", "")
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	empty := t.TempDir()
+	t.Setenv("HOME", empty)
+	t.Setenv("USERPROFILE", empty) // os.UserHomeDir() uses USERPROFILE on Windows
+	t.Setenv("XDG_CONFIG_HOME", empty)
 }
 
 func TestExitCodeMatrix(t *testing.T) {

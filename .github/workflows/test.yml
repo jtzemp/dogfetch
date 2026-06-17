@@ -10,6 +10,7 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         go: ['1.23', '1.24', 'stable']
@@ -48,7 +49,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: stable
+          # Pinned: golangci-lint v2.5.0's bundled go/types panics when
+          # type-checking against the Go 1.26 stdlib. 1.25 matches the
+          # toolchain the linter was built for.
+          go-version: '1.25'
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7

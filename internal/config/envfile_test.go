@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,6 +52,7 @@ func TestResolveCredentialsEnvWins(t *testing.T) {
 func TestResolveCredentialsFileFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir() uses USERPROFILE on Windows
 	t.Setenv("DD_API_KEY", "")
 	t.Setenv("DD_APP_KEY", "")
 	t.Setenv("DD_SITE", "")
@@ -68,8 +70,12 @@ func TestResolveCredentialsFileFallback(t *testing.T) {
 }
 
 func TestResolveCredentialsLoosePermsWarn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file permission bits are not meaningful on Windows")
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("DD_API_KEY", "")
 	t.Setenv("DD_APP_KEY", "")
 	t.Setenv("DD_SITE", "")

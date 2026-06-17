@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -115,8 +116,12 @@ func ResolveCredentials() Credentials {
 				c.Source = "file"
 			}
 		}
-		if mode := info.Mode().Perm(); mode&0o077 != 0 {
-			c.Warnings = append(c.Warnings, fmt.Sprintf("%s is readable by other users (mode %04o) - run: chmod 600 %s", path, mode, path))
+		// Unix permission bits are not meaningful on Windows, where
+		// os.Stat reports a synthetic mode; only warn where chmod applies.
+		if runtime.GOOS != "windows" {
+			if mode := info.Mode().Perm(); mode&0o077 != 0 {
+				c.Warnings = append(c.Warnings, fmt.Sprintf("%s is readable by other users (mode %04o) - run: chmod 600 %s", path, mode, path))
+			}
 		}
 	}
 

@@ -1,0 +1,7 @@
+# Golden fixtures are compared byte-for-byte against LF output from the
+# TOON encoder; keep them LF on every platform (Windows checkout would
+# otherwise convert to CRLF and fail the comparison).
+*.toon text eol=lf
+
+# POSIX wrapper must stay LF or its shebang breaks.
+*.sh text eol=lf

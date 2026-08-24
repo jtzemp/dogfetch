@@ -101,6 +101,10 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 		// Fetch page with retry
 		resp, _, err := f.fetchPageWithRetry(ctx, cursor, pageSize)
 		if err != nil {
+			if ctx.Err() != nil {
+				fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
+				return result(cursor), finalize(cursor)
+			}
 			return result(cursor), err
 		}
 

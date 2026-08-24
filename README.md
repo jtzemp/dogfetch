@@ -68,21 +68,29 @@ go install github.com/jtzemp/dogfetch@latest
 git clone https://github.com/jtzemp/dogfetch
 cd dogfetch
 
-# Simple build
-go build -o dogfetch
-
-# Or use make for versioned build
 make build
 ```
 
-### Building with Version Information
+`make build` injects version info from git (tag, commit, build date) via
+`-ldflags`, so `./dogfetch --version` reports something meaningful. A plain
+`go build -o dogfetch` also works but skips that.
 
-The Makefile automatically injects version information from git:
+### Makefile targets
+
+| Target             | What it does                                      |
+|--------------------|---------------------------------------------------|
+| `make build`       | Build `./dogfetch` with version info              |
+| `make install`     | Build and install to `$GOPATH/bin`                |
+| `make test`        | Run the test suite                                |
+| `make test-cover`  | Run tests with coverage                           |
+| `make lint`        | Run `golangci-lint` (matches CI)                  |
+| `make build-all`   | Cross-compile for linux/darwin/windows            |
+| `make version`     | Print the version/commit/date that would be built |
+| `make dev`         | Quick build with no version info injected         |
+| `make clean`       | Remove build artifacts                            |
+| `make release-tag` | Update the version and create a tag for releasing |
 
 ```bash
-# Build with version info
-make build
-
 # Check version
 ./dogfetch --version
 
@@ -438,13 +446,18 @@ Contributions welcome! Please open an issue or PR.
 
 Releases are automated using GitHub Actions and GoReleaser. To create a new release:
 
-1. **Bump `.claude-plugin/plugin.json` `version` to match the tag**, then commit.
-   The release workflow fails if the plugin version and tag disagree (this is
-   what makes plugin users actually receive the update).
-
-2. **Create and push a tag:**
+1. **Bump the plugin version, commit, and tag — all in one step:**
    ```bash
-   git tag -a v0.2.0 -m "Release v0.2.0"
+   make release-tag V=0.2.0
+   ```
+   This updates `.claude-plugin/plugin.json` `version` to `0.2.0`, commits
+   that change, and creates tag `v0.2.0` on top of it, so the version bump
+   and the tag point at the same commit. Requires a clean working tree.
+
+2. **Review, then push both:**
+   ```bash
+   git show
+   git push origin HEAD
    git push origin v0.2.0
    ```
 
@@ -456,6 +469,8 @@ Releases are automated using GitHub Actions and GoReleaser. To create a new rele
      - Release notes from commits since last tag
      - Pre-built binaries
      - Checksums for verification (used by the plugin wrapper's sha256 check)
+
+   The release workflow only *validates* the tagged commit. You tag it. Goreleaser builds it if it matches.
 
 4. **Manual release (optional):**
    ```bash

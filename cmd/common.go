@@ -35,7 +35,11 @@ func parseFlags(fs *flag.FlagSet, args []string, format string) (int, bool) {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK, false
 		}
-		return fail(format, axierr.Usage(axierr.UsageCodeBadFlag, err.Error(),
+		outputFormat := format // in case there's a general parse error, but we have a valid format flag
+		if f := fs.Lookup("format"); f != nil && f.Value.String() != f.DefValue {
+			outputFormat = f.Value.String()
+		}
+		return fail(outputFormat, axierr.Usage(axierr.UsageCodeBadFlag, err.Error(),
 			fmt.Sprintf("Run 'dogfetch %s --help' for the accepted flags", fs.Name()))), false
 	}
 	return exitOK, true

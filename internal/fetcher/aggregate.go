@@ -65,23 +65,29 @@ func NewAggregator(cfg *config.Config, errOut io.Writer) *Aggregator {
 const totalKey = "__total__"
 
 // Summarize runs the three aggregate queries (by status, by service,
-// timeline) and assembles a Summary.
+// timeline) and assembles a Summary. "now" is resolved once so all
+// three requests and the interval choice describe the same range.
 func (a *Aggregator) Summarize(ctx context.Context) (*Summary, error) {
-	s := &Summary{Interval: timeseriesInterval(a.config.From, a.config.To)}
+	to := a.config.To
+	if to.IsZero() {
+		to = time.Now()
+	}
 
-	byStatus, err := a.aggregateWithRetry(ctx, a.facetRequest("status"))
+	s := &Summary{Interval: timeseriesInterval(a.config.From, to)}
+
+	byStatus, err := a.aggregateWithRetry(ctx, a.facetRequest("status", to))
 	if err != nil {
 		return nil, err
 	}
 	s.ByStatus, s.Total, s.StatusCardinality = splitFacetBuckets(byStatus, "status")
 
-	byService, err := a.aggregateWithRetry(ctx, a.facetRequest("service"))
+	byService, err := a.aggregateWithRetry(ctx, a.facetRequest("service", to))
 	if err != nil {
 		return nil, err
 	}
 	s.ByService, _, s.ServiceCardinality = splitFacetBuckets(byService, "service")
 
-	timeline, err := a.aggregateWithRetry(ctx, a.timelineRequest(s.Interval))
+	timeline, err := a.aggregateWithRetry(ctx, a.timelineRequest(s.Interval, to))
 	if err != nil {
 		return nil, err
 	}
@@ -90,8 +96,9 @@ func (a *Aggregator) Summarize(ctx context.Context) (*Summary, error) {
 	return s, nil
 }
 
-// filter builds the shared query filter.
-func (a *Aggregator) filter() *datadogV2.LogsQueryFilter {
+// filter builds the shared query filter over an already-resolved
+// range end.
+func (a *Aggregator) filter(to time.Time) *datadogV2.LogsQueryFilter {
 	f := datadogV2.NewLogsQueryFilter()
 	if a.config.Query != "" {
 		f.SetQuery(a.config.Query)
@@ -100,10 +107,6 @@ func (a *Aggregator) filter() *datadogV2.LogsQueryFilter {
 		f.SetIndexes([]string{a.config.Index})
 	}
 	f.SetFrom(fmt.Sprintf("%d", a.config.From.UnixMilli()))
-	to := a.config.To
-	if to.IsZero() {
-		to = time.Now()
-	}
 	f.SetTo(fmt.Sprintf("%d", to.UnixMilli()))
 	return f
 }
@@ -111,7 +114,7 @@ func (a *Aggregator) filter() *datadogV2.LogsQueryFilter {
 // facetRequest counts logs grouped by facet (top facetLimit by count,
 // descending), plus a __total__ bucket whose computes cover all
 // matching records: c0 = total count, c1 = facet cardinality.
-func (a *Aggregator) facetRequest(facet string) datadogV2.LogsAggregateRequest {
+func (a *Aggregator) facetRequest(facet string, to time.Time) datadogV2.LogsAggregateRequest {
 	count := datadogV2.NewLogsCompute(datadogV2.LOGSAGGREGATIONFUNCTION_COUNT)
 	cardinality := datadogV2.NewLogsCompute(datadogV2.LOGSAGGREGATIONFUNCTION_CARDINALITY)
 	cardinality.SetMetric(facet)
@@ -127,53 +130,31 @@ func (a *Aggregator) facetRequest(facet string) datadogV2.LogsAggregateRequest {
 	groupBy.SetTotal(datadogV2.LogsGroupByTotalStringAsLogsGroupByTotal(&total))
 
 	req := datadogV2.NewLogsAggregateRequest()
-	req.SetFilter(*a.filter())
+	req.SetFilter(*a.filter(to))
 	req.SetCompute([]datadogV2.LogsCompute{*count, *cardinality})
 	req.SetGroupBy([]datadogV2.LogsGroupBy{*groupBy})
 	return *req
 }
 
 // timelineRequest counts logs bucketed over time.
-func (a *Aggregator) timelineRequest(interval string) datadogV2.LogsAggregateRequest {
+func (a *Aggregator) timelineRequest(interval string, to time.Time) datadogV2.LogsAggregateRequest {
 	count := datadogV2.NewLogsCompute(datadogV2.LOGSAGGREGATIONFUNCTION_COUNT)
 	count.SetType(datadogV2.LOGSCOMPUTETYPE_TIMESERIES)
 	count.SetInterval(interval)
 
 	req := datadogV2.NewLogsAggregateRequest()
-	req.SetFilter(*a.filter())
+	req.SetFilter(*a.filter(to))
 	req.SetCompute([]datadogV2.LogsCompute{*count})
 	return *req
 }
 
-// aggregateWithRetry mirrors fetchPageWithRetry for the Aggregate API.
+// aggregateWithRetry runs one Aggregate API request under the shared
+// retry policy.
 func (a *Aggregator) aggregateWithRetry(ctx context.Context, req datadogV2.LogsAggregateRequest) (datadogV2.LogsAggregateResponse, error) {
-	var resp datadogV2.LogsAggregateResponse
-	var httpResp *http.Response
-	var err error
-
-	attempt := 0
-	for {
-		resp, httpResp, err = a.client.GetAPI().AggregateLogs(a.client.GetContext(ctx), req)
-
-		retryErr := ClassifyError(err, httpResp)
-		if retryErr == nil {
-			return resp, nil
-		}
-
-		shouldRetry, backoff := ShouldRetry(attempt, retryErr)
-		if !shouldRetry {
-			return resp, FormatRetryError(err, httpResp)
-		}
-
-		attempt++
-		fmt.Fprintf(a.errOut, "Error (attempt %d/%d): %v - retrying in %v...\n", attempt, maxRetries, err, backoff)
-
-		select {
-		case <-ctx.Done():
-			return resp, ctx.Err()
-		case <-time.After(backoff):
-		}
-	}
+	resp, _, err := withRetry(ctx, a.errOut, func(ctx context.Context) (datadogV2.LogsAggregateResponse, *http.Response, error) {
+		return a.client.GetAPI().AggregateLogs(a.client.GetContext(ctx), req)
+	})
+	return resp, err
 }
 
 // splitFacetBuckets separates the __total__ bucket from facet buckets.
@@ -253,7 +234,8 @@ var timeseriesIntervals = []struct {
 
 // timeseriesInterval picks the bucket size that gets the range closest
 // to ~12 intervals, on a log scale across 1m/5m/1h/1d (or whole days
-// for very long ranges).
+// for very long ranges). Summarize passes an already-resolved to; a
+// zero value still means "now" for direct callers.
 func timeseriesInterval(from, to time.Time) string {
 	if to.IsZero() {
 		to = time.Now()

@@ -98,7 +98,7 @@ Implemented as planned, with these notes:
 - Wrapper verified against the real v0.1.1 release: resolves latest via GitHub API (24h cache, stale-cache fallback), downloads `dogfetch_<ver>_<Os>_<arch>.tar.gz` + checksums.txt, sha256-verifies, installs atomically (partial-then-rename) to `~/.cache/dogfetch/<ver>/`, execs. Tamper test (poisoned checksums.txt against a local mock server) rejects with the AXI error block, exit 1.
 - Version pin file lives at `~/.cache/dogfetch/pin` (written by `--self-update`), not in the plugin dir — plugin dirs are replaced on update.
 - `fail()` only runs at top level (never inside `$(...)`) so its stdout error block is never swallowed by command substitution; prerequisite checks (curl/wget, tar, sha256sum/shasum) run upfront for the same reason.
-- Wrapper exports `DOGFETCH_FORMAT=toon` unless already set.
+- Wrapper does **not** export `DOGFETCH_FORMAT`: pinning the format flag defeated the D6 rule (`--output` implies ndjson), so the binary owns the default on its own.
 - Old hand-rolled SKILL.md instructions in README replaced by the plugin install; skill teaches summary → patterns → fetch --limit order.
 - Still manual (needs interactive Claude Code / a Mac): local `/plugin marketplace add jtzemp/dogfetch` smoke test, and a darwin-arm64 wrapper run.
 

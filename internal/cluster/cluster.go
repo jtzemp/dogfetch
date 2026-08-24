@@ -33,11 +33,18 @@ type Cluster struct {
 	FirstSeen time.Time
 	LastSeen  time.Time
 	Sample    string // first raw message that formed the cluster
+
+	pattern string // cached Pattern(), invalidated by merge
 }
 
-// Pattern renders the template as a single string.
+// Pattern renders the template as a single string. The result is
+// cached: sorting compares patterns on every count tie, and the long
+// tail of singleton clusters is all ties.
 func (c *Cluster) Pattern() string {
-	return strings.Join(c.Tokens, " ")
+	if c.pattern == "" {
+		c.pattern = strings.Join(c.Tokens, " ")
+	}
+	return c.pattern
 }
 
 // Clusterer accumulates messages into clusters.
@@ -143,6 +150,7 @@ func merge(cl *Cluster, tokens []string) {
 	for i, t := range cl.Tokens {
 		if t != mask && t != tokens[i] {
 			cl.Tokens[i] = mask
+			cl.pattern = ""
 		}
 	}
 }

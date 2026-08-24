@@ -20,20 +20,12 @@ func runAuth() int {
 	}
 
 	if creds.APIKey == "" || creds.AppKey == "" {
-		help := axierr.AuthHelp()
-		// The last AuthHelp line points back at `dogfetch auth`;
-		// here, show the env-file format instead.
-		help = append(help[:len(help)-1],
-			"Example ~/.config/dogfetch/env:  DD_API_KEY=<key>  DD_APP_KEY=<key>  DD_SITE=datadoghq.com  (one per line)")
-		enc.List("help", help)
+		enc.List("help", axierr.AuthSetupHelp())
 	} else {
 		enc.List("help", []string{
 			"dogfetch fetch --query 'service:web status:error' --from 2h --limit 100",
 		})
 	}
 
-	if enc.Err() != nil {
-		return exitError
-	}
-	return exitOK
+	return encStatus(enc)
 }

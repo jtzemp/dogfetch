@@ -5,14 +5,17 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jtzemp/dogfetch/internal/axierr"
 	"github.com/jtzemp/dogfetch/internal/version"
 )
 
-// Exit codes follow the AXI convention: 0 success, 1 runtime error, 2 usage error.
+// Exit codes follow the AXI convention. These alias the axierr
+// constants so the process contract has a single definition: fail()
+// returns e.Exit, which comes from the same source.
 const (
-	exitOK    = 0
-	exitError = 1
-	exitUsage = 2
+	exitOK    = axierr.ExitOK
+	exitError = axierr.ExitError
+	exitUsage = axierr.ExitUsage
 )
 
 // Execute runs the CLI and returns the process exit code.

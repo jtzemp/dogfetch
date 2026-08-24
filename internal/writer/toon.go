@@ -3,9 +3,7 @@ package writer
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 	"github.com/jtzemp/dogfetch/internal/project"
@@ -34,6 +32,9 @@ func NewTOONWriter(path string, proj *project.Projector) *TOONWriter {
 
 // WritePage projects and buffers the logs.
 func (w *TOONWriter) WritePage(logs []datadogV2.Log) error {
+	if w.rows == nil {
+		w.rows = make([][]string, 0, len(logs))
+	}
 	for _, log := range logs {
 		w.rows = append(w.rows, w.proj.Row(log))
 	}
@@ -43,24 +44,16 @@ func (w *TOONWriter) WritePage(logs []datadogV2.Log) error {
 // Finalize emits the TOON document: count, the logs table (or a
 // definitive empty state), and a trailing help block with next steps.
 func (w *TOONWriter) Finalize(meta Meta) error {
-	out := w.output
-	if out == nil {
-		f, err := os.Create(w.path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		out = f
+	out, closeOut, err := openOut(w.output, w.path)
+	if err != nil {
+		return err
 	}
+	defer closeOut() //nolint:errcheck // the encoder's error is the one that matters
 
 	enc := toon.NewEncoder(out)
 
 	if len(w.rows) == 0 {
-		enc.Scalar("logs", fmt.Sprintf("0 matched query '%s' in range %s to %s",
-			meta.Query, formatTime(meta.From), formatTime(meta.To)))
-		enc.List("help", []string{
-			"Widen the time range with --from 24h or loosen the query",
-		})
+		toon.EmptyState(enc, "logs", "", meta.Query, meta.From, meta.To)
 		return enc.Err()
 	}
 
@@ -87,11 +80,4 @@ func (w *TOONWriter) Finalize(meta Meta) error {
 // Close is a no-op for TOONWriter.
 func (w *TOONWriter) Close() error {
 	return nil
-}
-
-func formatTime(t time.Time) string {
-	if t.IsZero() {
-		return "now"
-	}
-	return t.UTC().Format(time.RFC3339)
 }

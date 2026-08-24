@@ -36,8 +36,11 @@ func mockLogs(n int, afterCursor string) string {
 	return string(b)
 }
 
-// runFetchCapture runs runFetch with stdout captured.
-func runFetchCapture(t *testing.T, args ...string) (string, int) {
+// captureStdout runs run with os.Stdout redirected, returning what it
+// wrote alongside its exit code. Shared by every e2e file in the
+// package; the drain goroutine keeps a large payload from deadlocking
+// on the pipe buffer.
+func captureStdout(t *testing.T, run func() int) (string, int) {
 	t.Helper()
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
@@ -51,9 +54,15 @@ func runFetchCapture(t *testing.T, args ...string) (string, int) {
 		outCh <- string(b)
 	}()
 
-	code := runFetch(args)
+	code := run()
 	w.Close()
 	return <-outCh, code
+}
+
+// runFetchCapture runs runFetch with stdout captured.
+func runFetchCapture(t *testing.T, args ...string) (string, int) {
+	t.Helper()
+	return captureStdout(t, func() int { return runFetch(args) })
 }
 
 // setupEnv points the CLI at a mock server and clears DOGFETCH_* so a

@@ -247,7 +247,10 @@ func TestValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
+			err := tt.config.ValidateUsage()
+			if err == nil {
+				err = tt.config.ValidateAuth()
+			}
 
 			if tt.wantErr {
 				require.Error(t, err)

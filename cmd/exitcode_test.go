@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // combinedHandler answers both the list endpoint (fetch, patterns) and
@@ -33,22 +32,11 @@ func combinedHandler() http.HandlerFunc {
 // runExecuteCapture sets os.Args and runs Execute(), capturing stdout.
 func runExecuteCapture(t *testing.T, args ...string) (string, int) {
 	t.Helper()
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	origOut, origArgs := os.Stdout, os.Args
-	os.Stdout = w
+	origArgs := os.Args
 	os.Args = append([]string{"dogfetch"}, args...)
-	defer func() { os.Stdout, os.Args = origOut, origArgs }()
+	defer func() { os.Args = origArgs }()
 
-	outCh := make(chan string)
-	go func() {
-		b, _ := io.ReadAll(r)
-		outCh <- string(b)
-	}()
-
-	code := Execute()
-	w.Close()
-	return <-outCh, code
+	return captureStdout(t, Execute)
 }
 
 // clearAuth wipes credentials and points HOME at an empty dir so the

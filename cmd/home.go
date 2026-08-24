@@ -25,10 +25,7 @@ func runHome() int {
 		"dogfetch auth      (credential status and setup help)",
 		"dogfetch version",
 	})
-	if enc.Err() != nil {
-		return exitError
-	}
-	return exitOK
+	return encStatus(enc)
 }
 
 // binPath returns the current executable path with $HOME collapsed to ~.

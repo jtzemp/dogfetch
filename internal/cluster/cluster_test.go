@@ -26,7 +26,7 @@ func TestMaskToken(t *testing.T) {
 		{"10.0.3.117:8080", "<*>"},
 		{`"bob"`, "<*>"},
 		{"'bob'", "<*>"},
-		{"(503)", "<*>"},      // wrapping punctuation stripped for the test
+		{"(503)", "<*>"}, // wrapping punctuation stripped for the test
 		{"attempt:", "attempt:"},
 		{"user=123", "user=<*>"},
 		{"user=bob", "user=bob"},

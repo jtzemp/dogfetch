@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,21 +40,7 @@ func repetitiveLogs() string {
 
 func runPatternsCapture(t *testing.T, args ...string) (string, int) {
 	t.Helper()
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	orig := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = orig }()
-
-	outCh := make(chan string)
-	go func() {
-		b, _ := io.ReadAll(r)
-		outCh <- string(b)
-	}()
-
-	code := runPatterns(args)
-	w.Close()
-	return <-outCh, code
+	return captureStdout(t, func() int { return runPatterns(args) })
 }
 
 func TestE2EPatternsToon(t *testing.T) {

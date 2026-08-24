@@ -43,16 +43,7 @@ func New(fields []string) *Projector {
 func (p *Projector) Row(log datadogV2.Log) []string {
 	row := make([]string, len(p.Fields))
 	for i, f := range p.Fields {
-		v := p.resolve(log, f)
-		if len(v) > MaxValueLen {
-			cut := MaxValueLen
-			for cut > 0 && !utf8.RuneStart(v[cut]) {
-				cut--
-			}
-			v = v[:cut] + fmt.Sprintf("… (truncated, %d chars total)", len(v))
-			p.Truncated = true
-		}
-		row[i] = v
+		row[i] = p.value(log, f)
 	}
 	return row
 }
@@ -60,11 +51,26 @@ func (p *Projector) Row(log datadogV2.Log) []string {
 // Map projects a log to a field→value map (for json/ndjson output).
 func (p *Projector) Map(log datadogV2.Log) map[string]string {
 	m := make(map[string]string, len(p.Fields))
-	row := p.Row(log)
-	for i, f := range p.Fields {
-		m[f] = row[i]
+	for _, f := range p.Fields {
+		m[f] = p.value(log, f)
 	}
 	return m
+}
+
+// value resolves one field and applies the length cap. It runs once
+// per field per record, so it holds the truncation policy that both
+// Row and Map need rather than either building the other's shape.
+func (p *Projector) value(log datadogV2.Log, field string) string {
+	v := p.resolve(log, field)
+	if len(v) > MaxValueLen {
+		cut := MaxValueLen
+		for cut > 0 && !utf8.RuneStart(v[cut]) {
+			cut--
+		}
+		v = v[:cut] + fmt.Sprintf("… (truncated, %d chars total)", len(v))
+		p.Truncated = true
+	}
+	return v
 }
 
 // resolve maps a field name to its value. Reserved names hit the typed

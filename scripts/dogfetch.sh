@@ -197,8 +197,7 @@ fi
 set_version
 install_version
 
-# Agent-friendly default; explicit env or flags still win.
-DOGFETCH_FORMAT="${DOGFETCH_FORMAT:-toon}"
-export DOGFETCH_FORMAT
-
+# The binary already picks the agent-friendly default itself (toon on
+# stdout, ndjson with --output). Exporting DOGFETCH_FORMAT here would
+# pin the format flag and defeat the --output half of that rule.
 exec "$BIN" "$@"

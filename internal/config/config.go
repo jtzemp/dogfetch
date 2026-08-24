@@ -32,14 +32,6 @@ type Config struct {
 	Site   string
 }
 
-// Validate checks the configuration for errors
-func (c *Config) Validate() error {
-	if err := c.ValidateUsage(); err != nil {
-		return err
-	}
-	return c.ValidateAuth()
-}
-
 // ValidateUsage checks invocation parameters (bad values exit with usage error code 2)
 func (c *Config) ValidateUsage() error {
 	if c.Query == "" {
@@ -69,10 +61,16 @@ func (c *Config) ValidateUsage() error {
 		return fmt.Errorf("--cursor does not work with --format json; use ndjson or toon")
 	}
 
+	return c.ValidateRange()
+}
+
+// ValidateRange checks that the resolved time range runs forwards. It
+// is the one usage check the aggregate commands share with fetch, so
+// they call it directly rather than the whole of ValidateUsage.
+func (c *Config) ValidateRange() error {
 	if !c.To.IsZero() && c.From.After(c.To) {
 		return fmt.Errorf("--from (%s) must be before --to (%s)", c.From, c.To)
 	}
-
 	return nil
 }
 

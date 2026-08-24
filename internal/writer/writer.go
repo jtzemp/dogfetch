@@ -2,6 +2,7 @@ package writer
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -13,11 +14,9 @@ import (
 // Meta summarizes a completed fetch for Finalize.
 type Meta struct {
 	Total      int
-	Pages      int
 	NextCursor string // non-empty when more logs are available
 	Query      string
 	From, To   time.Time
-	Elapsed    time.Duration
 }
 
 // Writer defines the interface for writing log data
@@ -61,4 +60,18 @@ func New(cfg *config.Config) (Writer, error) {
 	default:
 		return nil, fmt.Errorf("unsupported format: %s", cfg.Format)
 	}
+}
+
+// openOut resolves a writer's Finalize destination: the io.Writer it
+// was constructed with, or a freshly created file at path. The
+// returned close func is a no-op for the caller-supplied writer.
+func openOut(output io.Writer, path string) (io.Writer, func() error, error) {
+	if output != nil {
+		return output, func() error { return nil }, nil
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, f.Close, nil
 }

@@ -3,7 +3,6 @@ package writer
 import (
 	"encoding/json"
 	"io"
-	"os"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 	"github.com/jtzemp/dogfetch/internal/project"
@@ -48,20 +47,11 @@ func (w *JSONWriter) WritePage(logs []datadogV2.Log) error {
 
 // Finalize writes all buffered logs to the output
 func (w *JSONWriter) Finalize(meta Meta) error {
-	var out io.Writer
-
-	if w.output != nil {
-		// Writing to provided writer (e.g., stdout)
-		out = w.output
-	} else {
-		// Writing to file
-		f, err := os.Create(w.path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		out = f
+	out, closeOut, err := openOut(w.output, w.path)
+	if err != nil {
+		return err
 	}
+	defer closeOut() //nolint:errcheck // encode error is the one that matters
 
 	var logs any = w.logs
 	if w.proj != nil {

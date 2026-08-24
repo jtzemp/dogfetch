@@ -40,14 +40,27 @@ func Runtime(code, message string, help ...string) *Error {
 	return &Error{Code: code, Message: message, Help: help, Exit: ExitError}
 }
 
-// AuthHelp is the remediation block for missing/rejected credentials.
-func AuthHelp() []string {
+// authSteps are the credential setup steps both help blocks share.
+func authSteps() []string {
 	return []string{
 		"Create an API key at https://app.datadoghq.com/organization-settings/api-keys",
 		"Create an Application key at https://app.datadoghq.com/organization-settings/application-keys",
 		"Export DD_API_KEY and DD_APP_KEY, or store them in ~/.config/dogfetch/env (KEY=VALUE lines, chmod 600)",
-		"Run `dogfetch auth` to check credential status",
 	}
+}
+
+// AuthHelp is the remediation block for missing/rejected credentials,
+// for commands that are not themselves `dogfetch auth`.
+func AuthHelp() []string {
+	return append(authSteps(), "Run `dogfetch auth` to check credential status")
+}
+
+// AuthSetupHelp is the block `dogfetch auth` itself shows: pointing a
+// reader back at the command they already ran helps nobody, so the
+// last step spells out the env-file format instead.
+func AuthSetupHelp() []string {
+	return append(authSteps(),
+		"Example ~/.config/dogfetch/env:  DD_API_KEY=<key>  DD_APP_KEY=<key>  DD_SITE=datadoghq.com  (one per line)")
 }
 
 // Render writes the error to w in the given output format. Formats
@@ -72,5 +85,6 @@ func Render(w io.Writer, format string, e *Error) {
 		enc := toon.NewEncoder(w)
 		enc.Scalar("error", fmt.Sprintf("%s (%s)", e.Message, e.Code))
 		enc.List("help", e.Help)
+		_ = enc.Err() // flushes; nothing useful to do if stdout is gone
 	}
 }

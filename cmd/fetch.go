@@ -1,17 +1,12 @@
 package cmd
 
 import (
-	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
 
 	"github.com/jtzemp/dogfetch/internal/axierr"
-	"github.com/jtzemp/dogfetch/internal/cli"
-	"github.com/jtzemp/dogfetch/internal/config"
 	"github.com/jtzemp/dogfetch/internal/fetcher"
 	"github.com/jtzemp/dogfetch/internal/version"
 )
@@ -61,11 +56,8 @@ func runFetch(args []string) int {
 		fmt.Fprintf(os.Stderr, "  DOGFETCH_INDEX     Default for --index\n")
 	}
 
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		return exitUsage
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
 	}
 
 	// Handle version flag
@@ -75,9 +67,8 @@ func runFetch(args []string) int {
 	}
 
 	// Flag > env > default precedence
-	if err := cli.ApplyEnvDefaults(fs, fetchEnvDefaults); err != nil {
-		return fail(*format, axierr.Usage("bad_env", err.Error(),
-			"Check DOGFETCH_* environment variables for invalid values"))
+	if code, ok := applyEnvDefaults(fs, fetchEnvDefaults, *format); !ok {
+		return code
 	}
 
 	// Default format (D6): agent-friendly toon on stdout, lossless
@@ -102,48 +93,18 @@ func runFetch(args []string) int {
 		errOut = f
 	}
 
-	// Resolve credentials: process env first, ~/.config/dogfetch/env fallback
-	creds := config.ResolveCredentials()
-	for _, warning := range creds.Warnings {
-		fmt.Fprintf(errOut, "Warning: %s\n", warning)
+	// Resolve credentials and the time range (shared with summary/patterns)
+	cfg, aerr := resolveQueryConfig(*query, *index, *from, *to, errOut)
+	if aerr != nil {
+		return fail(*format, aerr)
 	}
-
-	// Build config
-	cfg := &config.Config{
-		Query:      *query,
-		Index:      *index,
-		PageSize:   int32(*pageSize),
-		Limit:      *limit,
-		OutputPath: *output,
-		Format:     *format,
-		Cursor:     *cursor,
-		Append:     *appendFlag,
-		Fields:     splitFields(*fields),
-		APIKey:     creds.APIKey,
-		AppKey:     creds.AppKey,
-		Site:       creds.Site,
-	}
-
-	// Parse time range
-	if *from != "" {
-		parsedFrom, err := config.ParseTime(*from)
-		if err != nil {
-			return fail(*format, axierr.Usage("bad_time", fmt.Sprintf("invalid --from: %v", err),
-				"Use RFC3339 (2026-06-11T00:00:00Z), Unix seconds, or relative like 15m/2h/3d"))
-		}
-		cfg.From = parsedFrom
-	} else {
-		cfg.From = config.DefaultFrom()
-	}
-
-	if *to != "" {
-		parsedTo, err := config.ParseTime(*to)
-		if err != nil {
-			return fail(*format, axierr.Usage("bad_time", fmt.Sprintf("invalid --to: %v", err),
-				"Use RFC3339 (2026-06-11T00:00:00Z), Unix seconds, or relative like 15m/2h/3d"))
-		}
-		cfg.To = parsedTo
-	}
+	cfg.PageSize = int32(*pageSize)
+	cfg.Limit = *limit
+	cfg.OutputPath = *output
+	cfg.Format = *format
+	cfg.Cursor = *cursor
+	cfg.Append = *appendFlag
+	cfg.Fields = splitFields(*fields)
 
 	// Validate config
 	if err := cfg.ValidateUsage(); err != nil {
@@ -151,13 +112,8 @@ func runFetch(args []string) int {
 			"dogfetch fetch --query 'service:web status:error' --from 2h --limit 100"))
 	}
 
-	if err := config.ValidateSite(cfg.Site); err != nil {
-		return fail(*format, axierr.Usage("bad_site", err.Error(),
-			"Set DD_SITE to a domain like datadoghq.com or datadoghq.eu"))
-	}
-
-	if err := cfg.ValidateAuth(); err != nil {
-		return fail(*format, axierr.Runtime("auth_missing", err.Error(), axierr.AuthHelp()...))
+	if aerr := validateCredentials(cfg); aerr != nil {
+		return fail(*format, aerr)
 	}
 
 	// Create fetcher
@@ -168,27 +124,13 @@ func runFetch(args []string) int {
 	}
 
 	// Setup signal handling for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := interruptContext(errOut)
 	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-	// os.Interrupt works on both Unix and Windows (Ctrl+C)
-	signal.Notify(sigChan, os.Interrupt)
-
-	go func() {
-		<-sigChan
-		fmt.Fprintf(errOut, "\nReceived interrupt signal, shutting down gracefully...\n")
-		cancel()
-	}()
 
 	// Execute fetch
 	if _, err := f.Fetch(ctx); err != nil {
 		fmt.Fprintf(errOut, "Fetch failed: %v\n", err)
-		var ae *axierr.Error
-		if !errors.As(err, &ae) {
-			ae = axierr.Runtime("fetch_failed", err.Error())
-		}
-		return fail(*format, ae)
+		return fail(*format, asAXIError(err, "fetch_failed"))
 	}
 
 	return exitOK

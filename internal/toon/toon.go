@@ -9,27 +9,37 @@
 package toon
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const indent = "  "
 
-// Encoder writes TOON blocks to an underlying writer.
+// Encoder writes TOON blocks to an underlying writer. Output is
+// buffered: a table is one line per row, and an unbuffered os.Stdout
+// would turn each into its own write syscall.
 type Encoder struct {
-	w   io.Writer
+	w   *bufio.Writer
 	err error
 }
 
-// NewEncoder returns an Encoder writing to w.
+// NewEncoder returns an Encoder writing to w. Because output is
+// buffered, every caller must finish with Err: it flushes and reports
+// the first write error. Output written but never flushed is lost.
 func NewEncoder(w io.Writer) *Encoder {
-	return &Encoder{w: w}
+	return &Encoder{w: bufio.NewWriter(w)}
 }
 
-// Err returns the first write error encountered, if any.
+// Err flushes any buffered output and returns the first write error
+// encountered, if any.
 func (e *Encoder) Err() error {
+	if flushErr := e.w.Flush(); flushErr != nil && e.err == nil {
+		e.err = flushErr
+	}
 	return e.err
 }
 
@@ -141,7 +151,9 @@ func needsQuoting(s string) bool {
 	case "true", "false", "null":
 		return true
 	}
-	if numberLike.MatchString(s) {
+	// Only a sign or a digit can start a number; skipping the regexp
+	// otherwise keeps log messages off the engine entirely.
+	if c := s[0]; (c == '-' || (c >= '0' && c <= '9')) && numberLike.MatchString(s) {
 		return true
 	}
 	switch s[0] {
@@ -154,4 +166,28 @@ func needsQuoting(s string) bool {
 		return true
 	}
 	return strings.ContainsAny(s, ",\"\n\r\t\\")
+}
+
+// FormatRangeTime renders a query range bound. A zero time means the
+// bound was never set, which for a range end reads as "now".
+func FormatRangeTime(t time.Time) string {
+	if t.IsZero() {
+		return "now"
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// EmptyState writes the shared AXI no-results block: a definitive
+// "0 <noun> matched ..." answer under key, plus the standard hint. An
+// empty noun renders the bare "0 matched query ..." form.
+func EmptyState(e *Encoder, key, noun, query string, from, to time.Time) {
+	subject := "0"
+	if noun != "" {
+		subject += " " + noun
+	}
+	e.Scalar(key, fmt.Sprintf("%s matched query '%s' in range %s to %s",
+		subject, query, FormatRangeTime(from), FormatRangeTime(to)))
+	e.List("help", []string{
+		"Widen the time range with --from 24h or loosen the query",
+	})
 }

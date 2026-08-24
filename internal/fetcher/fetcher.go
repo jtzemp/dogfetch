@@ -47,9 +47,7 @@ func NewWithWriter(cfg *config.Config, w writer.Writer, errOut io.Writer) *Fetch
 // Result summarizes a completed (or interrupted) fetch.
 type Result struct {
 	Total      int
-	Pages      int
 	NextCursor string // non-empty when more logs are available (limit hit or cancelled)
-	Elapsed    time.Duration
 }
 
 // Fetch retrieves logs from Datadog
@@ -67,23 +65,16 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 	fmt.Fprintf(f.errOut, "\n")
 
 	result := func(nextCursor string) *Result {
-		return &Result{
-			Total:      totalLogs,
-			Pages:      pageCount,
-			NextCursor: nextCursor,
-			Elapsed:    time.Since(startTime),
-		}
+		return &Result{Total: totalLogs, NextCursor: nextCursor}
 	}
 
 	finalize := func(nextCursor string) error {
 		return f.writer.Finalize(writer.Meta{
 			Total:      totalLogs,
-			Pages:      pageCount,
 			NextCursor: nextCursor,
 			Query:      f.config.Query,
 			From:       f.config.From,
 			To:         f.config.To,
-			Elapsed:    time.Since(startTime),
 		})
 	}
 
@@ -159,35 +150,9 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 
 // fetchPageWithRetry fetches a single page with retry logic
 func (f *Fetcher) fetchPageWithRetry(ctx context.Context, cursor string) (datadogV2.LogsListResponse, *http.Response, error) {
-	var resp datadogV2.LogsListResponse
-	var httpResp *http.Response
-	var err error
-
-	attempt := 0
-	for {
-		resp, httpResp, err = f.fetchPage(ctx, cursor)
-
-		retryErr := ClassifyError(err, httpResp)
-		if retryErr == nil {
-			// Success
-			return resp, httpResp, nil
-		}
-
-		shouldRetry, backoff := ShouldRetry(attempt, retryErr)
-		if !shouldRetry {
-			return resp, httpResp, FormatRetryError(err, httpResp)
-		}
-
-		attempt++
-		fmt.Fprintf(f.errOut, "Error (attempt %d/%d): %v - retrying in %v...\n", attempt, maxRetries, err, backoff)
-
-		select {
-		case <-ctx.Done():
-			return resp, httpResp, ctx.Err()
-		case <-time.After(backoff):
-			// Continue to retry
-		}
-	}
+	return withRetry(ctx, f.errOut, func(ctx context.Context) (datadogV2.LogsListResponse, *http.Response, error) {
+		return f.fetchPage(ctx, cursor)
+	})
 }
 
 // fetchPage fetches a single page from the API

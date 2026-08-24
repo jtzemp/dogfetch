@@ -1,30 +1,20 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"time"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 	"github.com/jtzemp/dogfetch/internal/axierr"
-	"github.com/jtzemp/dogfetch/internal/cli"
 	"github.com/jtzemp/dogfetch/internal/cluster"
 	"github.com/jtzemp/dogfetch/internal/config"
 	"github.com/jtzemp/dogfetch/internal/fetcher"
 	"github.com/jtzemp/dogfetch/internal/toon"
 	"github.com/jtzemp/dogfetch/internal/writer"
 )
-
-// patternsEnvDefaults maps patterns flags to env vars.
-var patternsEnvDefaults = map[string]string{
-	"format": "DOGFETCH_FORMAT",
-	"index":  "DOGFETCH_INDEX",
-}
 
 func runPatterns(args []string) int {
 	fs := flag.NewFlagSet("patterns", flag.ContinueOnError)
@@ -49,96 +39,45 @@ func runPatterns(args []string) int {
 		fs.PrintDefaults()
 	}
 
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		return exitUsage
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
 	}
 
-	if err := cli.ApplyEnvDefaults(fs, patternsEnvDefaults); err != nil {
-		return fail(*format, axierr.Usage("bad_env", err.Error(),
-			"Check DOGFETCH_* environment variables for invalid values"))
+	if code, ok := applyEnvDefaults(fs, commonEnvDefaults, *format); !ok {
+		return code
 	}
 
-	if *format != "toon" && *format != "json" {
-		return fail("toon", axierr.Usage("usage",
-			fmt.Sprintf("patterns format must be 'toon' or 'json', got '%s'", *format),
-			"dogfetch patterns --query 'service:web' --from 2h --format toon"))
+	if aerr := requireTOONOrJSON("patterns", *format); aerr != nil {
+		return fail("toon", aerr)
 	}
 	if *limit < 0 || *top < 0 {
 		return fail(*format, axierr.Usage("usage", "--limit and --top must be >= 0"))
 	}
 
-	creds := config.ResolveCredentials()
-	for _, warning := range creds.Warnings {
-		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+	cfg, aerr := resolveQueryConfig(*query, *index, *from, *to, os.Stderr)
+	if aerr != nil {
+		return fail(*format, aerr)
+	}
+	cfg.PageSize = 1000
+	cfg.Limit = *limit
+
+	if err := cfg.ValidateRange(); err != nil {
+		return fail(*format, axierr.Usage("usage", err.Error()))
 	}
 
-	cfg := &config.Config{
-		Query:    *query,
-		Index:    *index,
-		PageSize: 1000,
-		Limit:    *limit,
-		APIKey:   creds.APIKey,
-		AppKey:   creds.AppKey,
-		Site:     creds.Site,
-	}
-
-	if *from != "" {
-		parsed, err := config.ParseTime(*from)
-		if err != nil {
-			return fail(*format, axierr.Usage("bad_time", fmt.Sprintf("invalid --from: %v", err),
-				"Use RFC3339 (2026-06-11T00:00:00Z), Unix seconds, or relative like 15m/2h/3d"))
-		}
-		cfg.From = parsed
-	} else {
-		cfg.From = config.DefaultFrom()
-	}
-
-	if *to != "" {
-		parsed, err := config.ParseTime(*to)
-		if err != nil {
-			return fail(*format, axierr.Usage("bad_time", fmt.Sprintf("invalid --to: %v", err),
-				"Use RFC3339 (2026-06-11T00:00:00Z), Unix seconds, or relative like 15m/2h/3d"))
-		}
-		cfg.To = parsed
-	}
-
-	if !cfg.To.IsZero() && cfg.From.After(cfg.To) {
-		return fail(*format, axierr.Usage("usage",
-			fmt.Sprintf("--from (%s) must be before --to (%s)", cfg.From, cfg.To)))
-	}
-
-	if err := config.ValidateSite(cfg.Site); err != nil {
-		return fail(*format, axierr.Usage("bad_site", err.Error(),
-			"Set DD_SITE to a domain like datadoghq.com or datadoghq.eu"))
-	}
-
-	if err := cfg.ValidateAuth(); err != nil {
-		return fail(*format, axierr.Runtime("auth_missing", err.Error(), axierr.AuthHelp()...))
+	if aerr := validateCredentials(cfg); aerr != nil {
+		return fail(*format, aerr)
 	}
 
 	collector := &clusterCollector{clusterer: cluster.New(0)}
 	f := fetcher.NewWithWriter(cfg, collector, os.Stderr)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := interruptContext(os.Stderr)
 	defer cancel()
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
-	go func() {
-		<-sigChan
-		fmt.Fprintf(os.Stderr, "\nReceived interrupt signal, shutting down gracefully...\n")
-		cancel()
-	}()
 
 	result, err := f.Fetch(ctx)
 	if err != nil {
-		var ae *axierr.Error
-		if !errors.As(err, &ae) {
-			ae = axierr.Runtime("fetch_failed", err.Error())
-		}
-		return fail(*format, ae)
+		return fail(*format, asAXIError(err, "fetch_failed"))
 	}
 
 	clusters := collector.clusterer.Clusters()
@@ -186,15 +125,8 @@ func renderPatternsToon(cfg *config.Config, result *fetcher.Result, all, shown [
 	}
 
 	if result.Total == 0 {
-		enc.Scalar("patterns", fmt.Sprintf("0 logs matched query '%s' in range %s to %s",
-			queryDisplay, formatRangeTime(cfg.From), formatRangeTime(cfg.To)))
-		enc.List("help", []string{
-			"Widen the time range with --from 24h or loosen the query",
-		})
-		if enc.Err() != nil {
-			return exitError
-		}
-		return exitOK
+		toon.EmptyState(enc, "patterns", "logs", queryDisplay, cfg.From, cfg.To)
+		return encStatus(enc)
 	}
 
 	enc.Scalar("scanned", result.Total)
@@ -227,10 +159,7 @@ func renderPatternsToon(cfg *config.Config, result *fetcher.Result, all, shown [
 	}
 	enc.List("help", help)
 
-	if enc.Err() != nil {
-		return exitError
-	}
-	return exitOK
+	return encStatus(enc)
 }
 
 // formatSeen renders a cluster timestamp; logs without timestamps

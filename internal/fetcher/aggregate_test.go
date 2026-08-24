@@ -8,9 +8,9 @@ import (
 func TestTimeseriesInterval(t *testing.T) {
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
-		name  string
-		rng   time.Duration
-		want  string
+		name string
+		rng  time.Duration
+		want string
 	}{
 		{"5 minutes", 5 * time.Minute, "1m"},
 		{"15 minutes", 15 * time.Minute, "1m"},

@@ -39,7 +39,7 @@ func runPatterns(args []string) int {
 		fs.PrintDefaults()
 	}
 
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, args, *format); !ok {
 		return code
 	}
 
@@ -51,7 +51,7 @@ func runPatterns(args []string) int {
 		return fail("toon", aerr)
 	}
 	if *limit < 0 || *top < 0 {
-		return fail(*format, axierr.Usage("usage", "--limit and --top must be >= 0"))
+		return fail(*format, axierr.Usage(axierr.UsageCodeUsage, "--limit and --top must be >= 0"))
 	}
 
 	cfg, aerr := resolveQueryConfig(*query, *index, *from, *to, os.Stderr)
@@ -62,7 +62,7 @@ func runPatterns(args []string) int {
 	cfg.Limit = *limit
 
 	if err := cfg.ValidateRange(); err != nil {
-		return fail(*format, axierr.Usage("usage", err.Error()))
+		return fail(*format, axierr.Usage(axierr.UsageCodeUsage, err.Error()))
 	}
 
 	if aerr := validateCredentials(cfg); aerr != nil {

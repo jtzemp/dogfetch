@@ -56,7 +56,7 @@ func runFetch(args []string) int {
 		fmt.Fprintf(os.Stderr, "  DOGFETCH_INDEX     Default for --index\n")
 	}
 
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, args, *format); !ok {
 		return code
 	}
 
@@ -108,7 +108,7 @@ func runFetch(args []string) int {
 
 	// Validate config
 	if err := cfg.ValidateUsage(); err != nil {
-		return fail(*format, axierr.Usage("usage", err.Error(),
+		return fail(*format, axierr.Usage(axierr.UsageCodeUsage, err.Error(),
 			"dogfetch fetch --query 'service:web status:error' --from 2h --limit 100"))
 	}
 

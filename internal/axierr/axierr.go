@@ -18,6 +18,15 @@ const (
 	ExitUsage = 2 // usage error
 )
 
+const (
+	UsageCodeUsage          = "usage"
+	UsageCodeBadEnv         = "bad_env"
+	UsageCodeBadFlag        = "bad_flag"
+	UsageCodeBadTime        = "bad_time"
+	UsageCodeBadSite        = "bad_site"
+	UsageCodeUnknownCommand = "unknown_command"
+)
+
 // Error is a structured CLI error.
 type Error struct {
 	Code    string   // stable machine-readable code, e.g. "auth_failed"

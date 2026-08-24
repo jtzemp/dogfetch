@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -230,4 +231,35 @@ func TestE2ELegacyImplicitFetch(t *testing.T) {
 	var log map[string]any
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(out)), &log))
 	assert.Equal(t, "log-0", log["id"])
+}
+
+// TestE2ELimitCursorNoSkip pins the resume contract: the cursor a
+// limited fetch reports must follow the last log it emitted. The
+// fetcher used to request a full page, trim it to --limit locally, and
+// still hand back the cursor the server issued for the whole page, so
+// resuming silently skipped everything trimmed.
+func TestE2ELimitCursorNoSkip(t *testing.T) {
+	var gotPageLimit []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit := r.URL.Query().Get("page[limit]")
+		gotPageLimit = append(gotPageLimit, limit)
+
+		n, err := strconv.Atoi(limit)
+		require.NoError(t, err)
+		// A well-behaved server returns at most page[limit] logs and a
+		// cursor positioned right after the last one it served.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, mockLogs(n, fmt.Sprintf("after-log-%d", n-1)))
+	}))
+	defer srv.Close()
+	setupEnv(t, srv.URL)
+
+	_, code := runFetchCapture(t,
+		"--query", "service:web", "--limit", "3", "--pageSize", "1000",
+		"--format", "ndjson", "--output", t.TempDir()+"/out.ndjson")
+	assert.Equal(t, 0, code)
+
+	require.Len(t, gotPageLimit, 1, "one request for a 3-log limit")
+	assert.Equal(t, "3", gotPageLimit[0],
+		"page[limit] must be capped to what --limit still needs, not --pageSize")
 }

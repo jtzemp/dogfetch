@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"time"
@@ -136,6 +137,11 @@ func ParseTime(s string) (time.Time, error) {
 			unit = 24 * time.Hour
 		case "w":
 			unit = 7 * 24 * time.Hour
+		}
+		// n * unit must stay inside time.Duration or it wraps, turning
+		// a huge "ago" into a time in the future.
+		if n > int64(math.MaxInt64)/int64(unit) {
+			return time.Time{}, fmt.Errorf("relative time '%s' is out of range", s)
 		}
 		return time.Now().Add(-time.Duration(n) * unit), nil
 	}

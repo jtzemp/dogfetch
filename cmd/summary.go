@@ -32,7 +32,7 @@ func runSummary(args []string) int {
 		fs.PrintDefaults()
 	}
 
-	if code, ok := parseFlags(fs, args); !ok {
+	if code, ok := parseFlags(fs, args, *format); !ok {
 		return code
 	}
 
@@ -50,7 +50,7 @@ func runSummary(args []string) int {
 	}
 
 	if err := cfg.ValidateRange(); err != nil {
-		return fail(*format, axierr.Usage("usage", err.Error()))
+		return fail(*format, axierr.Usage(axierr.UsageCodeUsage, err.Error()))
 	}
 
 	if aerr := validateCredentials(cfg); aerr != nil {

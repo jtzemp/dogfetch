@@ -47,9 +47,14 @@ func Execute() int {
 		fmt.Println(version.Info())
 		return exitOK
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", sub)
 		printRootUsage(os.Stderr)
-		return exitUsage
+		return fail("toon", axierr.Usage(axierr.UsageCodeUnknownCommand,
+			fmt.Sprintf("unknown command %q", sub),
+			"dogfetch summary --query 'service:web' --from 2h",
+			"dogfetch patterns --query 'service:web' --from 2h",
+			"dogfetch fetch --query 'service:web status:error' --limit 100",
+			"dogfetch auth",
+			"dogfetch version"))
 	}
 }
 

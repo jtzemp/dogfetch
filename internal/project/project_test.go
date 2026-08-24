@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 )
@@ -71,7 +72,9 @@ func TestFieldResolution(t *testing.T) {
 }
 
 func TestTruncation(t *testing.T) {
-	long := strings.Repeat("é", 400) // 800 bytes, multibyte
+	// 600 multibyte runes (1200 bytes): over the rune limit, so it is
+	// cut, and the reported total must be runes rather than bytes.
+	long := strings.Repeat("é", 600)
 	l := testLog()
 	l.Attributes.Message = &long
 
@@ -81,12 +84,33 @@ func TestTruncation(t *testing.T) {
 	if !p.Truncated {
 		t.Error("expected Truncated flag")
 	}
-	if !strings.Contains(msg, "truncated, 800 chars total") {
-		t.Errorf("missing truncation marker: %q", msg)
+	if !strings.Contains(msg, "truncated, 600 chars total") {
+		t.Errorf("total must be counted in runes, not bytes: %q", msg)
 	}
 	prefix, _, _ := strings.Cut(msg, "…")
-	if !strings.HasPrefix(long, prefix) || len(prefix) > MaxValueLen {
-		t.Errorf("bad rune-boundary cut, prefix len %d", len(prefix))
+	if !strings.HasPrefix(long, prefix) {
+		t.Errorf("cut is not on a rune boundary: %q", prefix)
+	}
+	if n := utf8.RuneCountInString(prefix); n != MaxValueLen {
+		t.Errorf("kept %d runes, want %d", n, MaxValueLen)
+	}
+}
+
+// TestTruncationCountsRunesNotBytes pins the bug Copilot caught: a
+// value under the rune limit must survive intact even when its UTF-8
+// encoding pushes it past MaxValueLen bytes.
+func TestTruncationCountsRunesNotBytes(t *testing.T) {
+	long := strings.Repeat("é", 400) // 400 runes, 800 bytes
+	l := testLog()
+	l.Attributes.Message = &long
+
+	p := New(nil)
+	got := p.Row(l)[3]
+	if p.Truncated {
+		t.Error("400 runes is under the 500-rune limit; must not truncate")
+	}
+	if got != long {
+		t.Errorf("value was altered: got %d bytes, want %d", len(got), len(long))
 	}
 }
 

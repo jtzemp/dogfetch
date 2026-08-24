@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"math/rand"
+	"slices"
 	"testing"
 	"time"
 )
@@ -177,4 +178,52 @@ func TestLongMessagesCapAt32Tokens(t *testing.T) {
 	if got := len(clusters[0].Tokens); got != 32 {
 		t.Errorf("token cap = %d, want 32", got)
 	}
+}
+
+// TestQuotedSpanTokenization pins the gap Copilot caught: `patterns`
+// promises quoted values become <*>, but whitespace-first splitting
+// only ever masked single-word ones.
+func TestQuotedSpanTokenization(t *testing.T) {
+	tests := []struct {
+		message string
+		want    []string
+	}{
+		{`user="Bob Smith" logged in`, []string{"user=<*>", "logged", "in"}},
+		{`user='Bob Smith' logged in`, []string{"user=<*>", "logged", "in"}},
+		{`msg "multi word value" end`, []string{"msg", "<*>", "end"}},
+		// An apostrophe in prose must not open a span and swallow the line.
+		{`can't connect to host`, []string{"can't", "connect", "to", "host"}},
+		// Neither may an unmatched quote.
+		{`unterminated "quote here`, []string{"unterminated", `"quote`, "here"}},
+	}
+	for _, tt := range tests {
+		if got := tokenize(tt.message); !slices.Equal(got, tt.want) {
+			t.Errorf("tokenize(%q) = %q, want %q", tt.message, got, tt.want)
+		}
+	}
+}
+
+// TestMultiWordQuotedValuesCluster is the behavioral payoff: two
+// messages differing only inside a multi-word quoted value must land
+// in one cluster.
+func TestMultiWordQuotedValuesCluster(t *testing.T) {
+	c := New(0)
+	c.Add(time.Time{}, `login failed for user="Bob Smith" from 10.0.0.1`)
+	c.Add(time.Time{}, `login failed for user="Ann Lee" from 10.0.0.2`)
+
+	got := c.Clusters()
+	if len(got) != 1 {
+		t.Fatalf("got %d clusters, want 1: %q", len(got), patternsOf(got))
+	}
+	if got[0].Count != 2 {
+		t.Errorf("count = %d, want 2", got[0].Count)
+	}
+}
+
+func patternsOf(cs []*Cluster) []string {
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.Pattern()
+	}
+	return out
 }

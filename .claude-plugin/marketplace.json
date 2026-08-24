@@ -1,0 +1,13 @@
+{
+  "name": "dogfetch",
+  "owner": {
+    "name": "JT Zemp"
+  },
+  "plugins": [
+    {
+      "name": "dogfetch",
+      "source": "./",
+      "description": "Query Datadog logs from Claude Code: summaries, pattern clustering, and raw fetches"
+    }
+  ]
+}

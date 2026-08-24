@@ -26,14 +26,17 @@ var commonEnvDefaults = map[string]string{
 }
 
 // parseFlags parses args. It returns (exit code, false) when the
-// caller should return immediately: --help prints usage and exits 0,
-// a bad flag exits 2.
-func parseFlags(fs *flag.FlagSet, args []string) (int, bool) {
+// caller should return immediately: --help prints usage and exits 0, a
+// bad flag renders a structured error and exits 2. flag writes its own
+// diagnostic to stderr; per AXI the machine-readable block still has to
+// reach stdout, or an agent sees only a bare exit code.
+func parseFlags(fs *flag.FlagSet, args []string, format string) (int, bool) {
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK, false
 		}
-		return exitUsage, false
+		return fail(format, axierr.Usage(axierr.UsageCodeBadFlag, err.Error(),
+			fmt.Sprintf("Run 'dogfetch %s --help' for the accepted flags", fs.Name()))), false
 	}
 	return exitOK, true
 }
@@ -42,7 +45,7 @@ func parseFlags(fs *flag.FlagSet, args []string) (int, bool) {
 // rendering a usage error in format when a value does not parse.
 func applyEnvDefaults(fs *flag.FlagSet, mapping map[string]string, format string) (int, bool) {
 	if err := cli.ApplyEnvDefaults(fs, mapping); err != nil {
-		return fail(format, axierr.Usage("bad_env", err.Error(),
+		return fail(format, axierr.Usage(axierr.UsageCodeBadEnv, err.Error(),
 			"Check DOGFETCH_* environment variables for invalid values")), false
 	}
 	return exitOK, true
@@ -54,7 +57,7 @@ func requireTOONOrJSON(command, format string) *axierr.Error {
 	if format == "toon" || format == "json" {
 		return nil
 	}
-	return axierr.Usage("usage",
+	return axierr.Usage(axierr.UsageCodeUsage,
 		fmt.Sprintf("%s format must be 'toon' or 'json', got '%s'", command, format),
 		fmt.Sprintf("dogfetch %s --query 'service:web' --from 2h --format toon", command))
 }
@@ -80,7 +83,7 @@ func resolveQueryConfig(query, index, from, to string, errOut io.Writer) (*confi
 	if from != "" {
 		parsed, err := config.ParseTime(from)
 		if err != nil {
-			return nil, axierr.Usage("bad_time", fmt.Sprintf("invalid --from: %v", err), timeHelp)
+			return nil, axierr.Usage(axierr.UsageCodeBadTime, fmt.Sprintf("invalid --from: %v", err), timeHelp)
 		}
 		cfg.From = parsed
 	} else {
@@ -90,7 +93,7 @@ func resolveQueryConfig(query, index, from, to string, errOut io.Writer) (*confi
 	if to != "" {
 		parsed, err := config.ParseTime(to)
 		if err != nil {
-			return nil, axierr.Usage("bad_time", fmt.Sprintf("invalid --to: %v", err), timeHelp)
+			return nil, axierr.Usage(axierr.UsageCodeBadTime, fmt.Sprintf("invalid --to: %v", err), timeHelp)
 		}
 		cfg.To = parsed
 	}
@@ -102,7 +105,7 @@ func resolveQueryConfig(query, index, from, to string, errOut io.Writer) (*confi
 // command that talks to the API.
 func validateCredentials(cfg *config.Config) *axierr.Error {
 	if err := config.ValidateSite(cfg.Site); err != nil {
-		return axierr.Usage("bad_site", err.Error(),
+		return axierr.Usage(axierr.UsageCodeBadSite, err.Error(),
 			"Set DD_SITE to a domain like datadoghq.com or datadoghq.eu")
 	}
 	if err := cfg.ValidateAuth(); err != nil {

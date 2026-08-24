@@ -175,11 +175,24 @@ install_version() {
     tar -xzf "$_tmp/$_archive" -C "$_tmp" dogfetch ||
         fail "could not extract dogfetch from $_archive"
 
+    # Per-process partial name: two wrappers racing on the same version
+    # would otherwise rename each other's half-installed file. The final
+    # mv is atomic within the directory, so the loser simply overwrites
+    # with identical, already-verified bytes.
     mkdir -p "$CACHE_DIR/$VERSION"
-    mv "$_tmp/dogfetch" "$BIN.partial" &&
-        chmod 0755 "$BIN.partial" &&
-        mv "$BIN.partial" "$BIN" ||
+    _partial="$BIN.partial.$$"
+    mv "$_tmp/dogfetch" "$_partial" &&
+        chmod 0755 "$_partial" &&
+        mv "$_partial" "$BIN" || {
+        rm -f "$_partial"
         fail "could not install binary to $BIN"
+    }
+
+    # exec (the normal exit path) replaces this shell without running
+    # the EXIT trap, so clean up here rather than leaking the download
+    # directory under /tmp on every first install.
+    rm -rf "$_tmp"
+    trap - EXIT
 }
 
 # --- main ---
@@ -189,7 +202,9 @@ if [ "${1:-}" = "--self-update" ]; then
     VERSION="${TAG#v}"
     install_version
     mkdir -p "$CACHE_DIR"
-    printf '%s\n' "$TAG" >"$PIN_FILE"
+    printf '%s\n' "$TAG" >"$PIN_FILE" ||
+        fail "could not write the version pin to $PIN_FILE" \
+            "Check permissions on $CACHE_DIR"
     printf 'dogfetch: pinned to %s (%s)\n' "$TAG" "$BIN"
     exit 0
 fi

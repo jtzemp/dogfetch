@@ -1,0 +1,13 @@
+{
+  "name": "dogfetch",
+  "displayName": "dogfetch",
+  "description": "Query Datadog logs from Claude Code: token-efficient summaries, pattern clustering, and raw log fetches via the dogfetch CLI (auto-downloaded, sha256-verified)",
+  "version": "0.2.0",
+  "author": {
+    "name": "JT Zemp"
+  },
+  "homepage": "https://github.com/jtzemp/dogfetch",
+  "repository": "https://github.com/jtzemp/dogfetch",
+  "license": "MIT",
+  "keywords": ["datadog", "logs", "observability", "debugging"]
+}

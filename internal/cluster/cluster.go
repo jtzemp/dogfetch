@@ -181,7 +181,7 @@ func firstStable(tokens []string) string {
 // tokenize splits on whitespace, masks volatile tokens, and caps the
 // token count.
 func tokenize(message string) []string {
-	fields := strings.Fields(message)
+	fields := splitFields(message)
 	if len(fields) > maxTokens {
 		fields = fields[:maxTokens]
 	}
@@ -190,6 +190,58 @@ func tokenize(message string) []string {
 		tokens[i] = maskToken(f)
 	}
 	return tokens
+}
+
+// splitFields splits on whitespace but keeps a quoted span together,
+// so `user="Bob Smith"` stays one token and masks like any other
+// quoted value. Splitting it first would leave two stable tokens and
+// change the token count, so messages differing only in a multi-word
+// quoted value would never cluster.
+//
+// A quote only opens a span when it starts a token (or follows the =
+// of a key=value pair) and a matching close quote exists later in the
+// message. Without both tests an apostrophe in ordinary prose —
+// "can't connect to host" — would swallow the rest of the line.
+func splitFields(message string) []string {
+	var fields []string
+	var b strings.Builder
+	var quote byte // 0 when outside a quoted span
+
+	flush := func() {
+		if b.Len() > 0 {
+			fields = append(fields, b.String())
+			b.Reset()
+		}
+	}
+
+	atTokenStart := func(i int) bool {
+		return b.Len() == 0 || message[i-1] == '='
+	}
+
+	for i := 0; i < len(message); i++ {
+		c := message[i]
+		switch {
+		case quote != 0:
+			b.WriteByte(c)
+			if c == quote {
+				quote = 0
+			}
+		case (c == '"' || c == '\'') && atTokenStart(i) &&
+			strings.IndexByte(message[i+1:], c) >= 0:
+			quote = c
+			b.WriteByte(c)
+		case isSpace(c):
+			flush()
+		default:
+			b.WriteByte(c)
+		}
+	}
+	flush()
+	return fields
+}
+
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
 }
 
 var (

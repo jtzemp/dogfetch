@@ -16,8 +16,10 @@ import (
 // DefaultFields is the projection used when --fields is not given.
 var DefaultFields = []string{"timestamp", "status", "service", "message"}
 
-// MaxValueLen is the per-value truncation limit. Long values (usually
-// message) are cut here; the writer surfaces one help hint about it.
+// MaxValueLen is the per-value truncation limit, counted in runes so
+// the limit and the reported total mean the same thing to a reader of
+// the output. Long values (usually message) are cut here; the writer
+// surfaces one help hint about it.
 const MaxValueLen = 500
 
 // Projector resolves field paths against Datadog logs.
@@ -62,15 +64,26 @@ func (p *Projector) Map(log datadogV2.Log) map[string]string {
 // Row and Map need rather than either building the other's shape.
 func (p *Projector) value(log datadogV2.Log, field string) string {
 	v := p.resolve(log, field)
-	if len(v) > MaxValueLen {
-		cut := MaxValueLen
-		for cut > 0 && !utf8.RuneStart(v[cut]) {
-			cut--
-		}
-		v = v[:cut] + fmt.Sprintf("… (truncated, %d chars total)", len(v))
-		p.Truncated = true
+	// A value can only exceed the rune limit if it exceeds it in
+	// bytes, so the cheap byte check gates the O(n) rune count.
+	if len(v) <= MaxValueLen {
+		return v
 	}
-	return v
+	total := utf8.RuneCountInString(v)
+	if total <= MaxValueLen {
+		return v
+	}
+	cut := len(v)
+	seen := 0
+	for i := range v { // range over a string yields rune start offsets
+		if seen == MaxValueLen {
+			cut = i
+			break
+		}
+		seen++
+	}
+	p.Truncated = true
+	return v[:cut] + fmt.Sprintf("… (truncated, %d chars total)", total)
 }
 
 // resolve maps a field name to its value. Reserved names hit the typed

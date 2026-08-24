@@ -87,13 +87,26 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 		default:
 		}
 
+		// Never request more than --limit still needs: the cursor the
+		// API returns points past the whole page it served, so
+		// over-fetching and trimming locally would emit a cursor that
+		// skips the trimmed remainder on resume.
+		pageSize := f.config.PageSize
+		if f.config.Limit > 0 {
+			if remaining := f.config.Limit - totalLogs; remaining < int(pageSize) {
+				pageSize = int32(remaining)
+			}
+		}
+
 		// Fetch page with retry
-		resp, _, err := f.fetchPageWithRetry(ctx, cursor)
+		resp, _, err := f.fetchPageWithRetry(ctx, cursor, pageSize)
 		if err != nil {
 			return result(cursor), err
 		}
 
-		// Trim to --limit before writing
+		// Trim to --limit before writing. With the page size capped
+		// above this is a no-op slice; it stays as a guard against a
+		// server that over-returns.
 		logs := resp.GetData()
 		limitHit := false
 		if f.config.Limit > 0 && totalLogs+len(logs) >= f.config.Limit {
@@ -149,14 +162,14 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 }
 
 // fetchPageWithRetry fetches a single page with retry logic
-func (f *Fetcher) fetchPageWithRetry(ctx context.Context, cursor string) (datadogV2.LogsListResponse, *http.Response, error) {
+func (f *Fetcher) fetchPageWithRetry(ctx context.Context, cursor string, pageSize int32) (datadogV2.LogsListResponse, *http.Response, error) {
 	return withRetry(ctx, f.errOut, func(ctx context.Context) (datadogV2.LogsListResponse, *http.Response, error) {
-		return f.fetchPage(ctx, cursor)
+		return f.fetchPage(ctx, cursor, pageSize)
 	})
 }
 
 // fetchPage fetches a single page from the API
-func (f *Fetcher) fetchPage(ctx context.Context, cursor string) (datadogV2.LogsListResponse, *http.Response, error) {
+func (f *Fetcher) fetchPage(ctx context.Context, cursor string, pageSize int32) (datadogV2.LogsListResponse, *http.Response, error) {
 	// Add API keys to context
 	ctx = f.client.GetContext(ctx)
 
@@ -183,8 +196,8 @@ func (f *Fetcher) fetchPage(ctx context.Context, cursor string) (datadogV2.LogsL
 		opts.FilterTo = &f.config.To
 	}
 
-	// Page size
-	opts.PageLimit = &f.config.PageSize
+	// Page size (already capped to what --limit still needs)
+	opts.PageLimit = &pageSize
 
 	// Cursor
 	if cursor != "" {

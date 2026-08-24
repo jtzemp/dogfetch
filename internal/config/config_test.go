@@ -283,6 +283,7 @@ func TestValidateSite(t *testing.T) {
 		"us3.datadoghq.com",
 		"us5.datadoghq.com",
 		"ap1.datadoghq.com",
+		"ap2.datadoghq.com",
 		"ddog-gov.com",
 	}
 	for _, s := range valid {
@@ -299,6 +300,9 @@ func TestValidateSite(t *testing.T) {
 		"datadoghq.com:443",
 		"has space.com",
 		"nodot",
+		"evil.example",
+		"datadoghq.com.evil.example",
+		"us1.datadoghq.com",
 	}
 	for _, s := range invalid {
 		assert.Error(t, ValidateSite(s), "site %q should be rejected", s)

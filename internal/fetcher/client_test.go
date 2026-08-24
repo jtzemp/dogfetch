@@ -1,3 +1,5 @@
+//go:build testseam
+
 package fetcher
 
 import "testing"

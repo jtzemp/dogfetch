@@ -88,23 +88,31 @@ func (c *Config) ValidateAuth() error {
 	return nil
 }
 
-// siteRe matches a bare Datadog site domain (e.g. datadoghq.com,
-// us5.datadoghq.com, datadoghq.eu, ddog-gov.com): hostname labels only,
-// at least one dot, no scheme, port, path, or whitespace.
-var siteRe = regexp.MustCompile(`^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$`)
+// validSites is the exhaustive list of Datadog site domains. It is an
+// allowlist, not a shape check: the API and app keys are attached to
+// every request, so accepting any well-formed-looking hostname (as a
+// regex would) lets a planted or stale DD_SITE silently redirect
+// credential-bearing requests to an arbitrary host under attacker
+// control. See https://docs.datadoghq.com/getting_started/site/.
+var validSites = map[string]bool{
+	"datadoghq.com":     true, // US1
+	"us3.datadoghq.com": true, // US3
+	"us5.datadoghq.com": true, // US5
+	"datadoghq.eu":      true, // EU
+	"ddog-gov.com":      true, // US1-FED
+	"ap1.datadoghq.com": true, // AP1
+	"ap2.datadoghq.com": true, // AP2
+}
 
-// ValidateSite rejects a DD_SITE that is not a plain Datadog domain.
-// A full URL must never be accepted here: the API and app keys are
-// attached to every request, so a URL site (from the environment or the
-// credential env file) would redirect credential-bearing requests to an
-// arbitrary host. An empty site is valid (the SDK defaults to
+// ValidateSite rejects a DD_SITE that is not one of Datadog's published
+// site domains. An empty site is valid (the SDK defaults to
 // datadoghq.com).
 func ValidateSite(site string) error {
 	if site == "" {
 		return nil
 	}
-	if !siteRe.MatchString(site) {
-		return fmt.Errorf("invalid DD_SITE %q: expected a Datadog site domain like datadoghq.com or datadoghq.eu, not a URL", site)
+	if !validSites[site] {
+		return fmt.Errorf("invalid DD_SITE %q: expected one of datadoghq.com, us3.datadoghq.com, us5.datadoghq.com, datadoghq.eu, ddog-gov.com, ap1.datadoghq.com, ap2.datadoghq.com", site)
 	}
 	return nil
 }

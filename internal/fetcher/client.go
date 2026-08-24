@@ -2,7 +2,6 @@ package fetcher
 
 import (
 	"context"
-	"os"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
@@ -38,21 +37,23 @@ func NewClient(apiKey, appKey, site string) *Client {
 	}
 }
 
+// testAPIBaseURLOverride lets tests point the client at a mock server
+// instead of a real Datadog site. It stays nil in any binary built
+// without the "testseam" tag — see testseam.go — so the override code
+// is physically absent from release builds and can never be reached via
+// a process environment variable in production.
+var testAPIBaseURLOverride func() string
+
 // apiBaseURL resolves the Datadog API server URL.
 //
-// In normal use the site is a Datadog domain (validated upstream by
+// The site is a Datadog domain (validated upstream by
 // config.ValidateSite) and the URL is https://api.<site>; an empty site
 // falls through to the SDK default (datadoghq.com).
-//
-// DOGFETCH_API_URL is an internal override used only by tests to point
-// the client at a mock server. It is intentionally read from the process
-// environment ONLY — never from the credential env file — so a planted
-// ~/.config/dogfetch/env can never redirect credential-bearing requests
-// to an arbitrary host. Because it bypasses site validation it must not
-// be documented as a user-facing setting.
 func apiBaseURL(site string) string {
-	if override := os.Getenv("DOGFETCH_API_URL"); override != "" {
-		return override
+	if testAPIBaseURLOverride != nil {
+		if override := testAPIBaseURLOverride(); override != "" {
+			return override
+		}
 	}
 	if site == "" {
 		return ""

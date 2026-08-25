@@ -2,10 +2,34 @@
 
 # dogfetch
 
-Getting [Datadog logs](https://docs.datadoghq.com/logs/) to your machine is ruff. If you're a lazy mutt like 
+Getting [Datadog logs](https://docs.datadoghq.com/logs/) to your machine is ruff. If you're a lazy mutt like
 me, use **dogfetch**. Woof!
 
+Built agent-first, following [AXI principles](https://axi.md): compact output by default, predictable flags,
+and a cheap-to-expensive command ladder so an LLM burns minimum tokens getting to an answer.
+
 ## Quick start
+
+### Agents
+
+Install the Claude Code plugin (auto-downloads a verified binary)
+
+```
+/plugin marketplace add jtzemp/dogfetch
+/plugin install dogfetch@dogfetch 
+```
+
+Then ask your agent:
+
+```
+Look at the logs and tell me which service has the most errors in the last day.
+```
+
+If you need to authenticate, it'll walk you through it and then call `dogfetch` to get the results.
+
+### Humans
+
+Install the most recent release from the [releases page](https://github.com/jtzemp/dogfetch/releases).
 
 ```bash
 export DD_API_KEY=your_api_key
@@ -16,20 +40,15 @@ dogfetch --query 'service:web status:error' \
   --to '2024-01-02T00:00:00Z' --format ndjson | jq -r '.attributes.message'
 ```
 
-> [!IMPORTANT]
-> **Breaking change:** when writing to **stdout**, the default output format is now
-> [TOON](https://toonformat.dev) (a compact, agent-friendly tabular format) with a
-> minimal field projection (`timestamp,status,service,message`). Pipelines that
-> expect JSON lines on stdout should pass `--format ndjson` or set
-> `DOGFETCH_FORMAT=ndjson`. File export with `--output` still defaults to lossless
-> NDJSON — nothing changes there.
-
 ## Features
 
 - **Simple query interface** - Fetch logs using Datadog's query syntax
-- **Agent-friendly by default** - Compact TOON output with field projection on stdout (~70% smaller than raw JSON)
-- **Pre-computed aggregates** - `dogfetch summary` for counts by status/service and a timeline, without fetching raw logs
-- **Pattern clustering** - `dogfetch patterns` collapses thousands of repetitive logs into a handful of templates
+- **Agent-friendly by default** - Compact [TOON](https://toonformat.dev/) output with field projection on
+  stdout (~70% smaller than raw JSON)
+- **Pre-computed aggregates** - `dogfetch summary` for counts by status/service and a timeline, without
+  fetching raw logs
+- **Pattern clustering** - `dogfetch patterns` collapses thousands of repetitive logs into a handful of
+  templates
 - **Flexible output formats** - TOON, JSON, or NDJSON (newline-delimited JSON)
 - **Memory efficient streaming** - NDJSON mode streams results to disk with minimal memory usage
 - **Pagination checkpoint/resume** - Save progress and resume from where you left off if interrupted
@@ -45,16 +64,23 @@ dogfetch --query 'service:web status:error' \
 /plugin install dogfetch@dogfetch
 ```
 
-This installs a skill that teaches Claude the agent-optimal call order
-(`summary` → `patterns` → `fetch --limit`) and a wrapper script that
-auto-downloads a sha256-verified binary from GitHub Releases on first use
-(cached in `~/.cache/dogfetch/`). No manual binary install needed — only the
-one-time Datadog key setup (run `dogfetch auth` or see
+This installs a skill that teaches Claude the agent-optimal call order (`summary` → `patterns` →
+`fetch --limit`) and a wrapper script that auto-downloads a sha256-verified binary from GitHub Releases on
+first use (cached in `~/.cache/dogfetch/`). No manual binary install needed — only the one-time Datadog key
+setup (run `dogfetch auth` or see
 [Prerequisites](#prerequisites)).
+
+> [!NOTE]
+> **Windows:** the plugin wrapper ([`scripts/dogfetch.sh`](scripts/dogfetch.sh)) is a bash script, so agent
+> integration currently only works on macOS and Linux (including WSL). The `dogfetch` binary itself builds
+> and runs fine on Windows — it's just the auto-install wrapper that's Unix-only for now. A native `.ps1`/
+`.cmd`
+> wrapper would fix this. Contributions welcome!
 
 ### Pre-built binaries
 
-Download the latest release for your platform from the [releases page](https://github.com/jtzemp/dogfetch/releases).
+Download the latest release for your platform from
+the [releases page](https://github.com/jtzemp/dogfetch/releases).
 
 ### Go install
 
@@ -118,14 +144,14 @@ export DD_SITE=us3.datadoghq.com
 
 ### Commands
 
-| Command | What it does |
-|---|---|
-| `dogfetch fetch` | Fetch raw log lines (the default — `dogfetch --query …` is shorthand) |
-| `dogfetch summary` | Counts by status/service + a timeline, via the Aggregate API (no raw logs) |
-| `dogfetch patterns` | Cluster messages into templates so repetitive logs collapse to a few rows |
-| `dogfetch auth` | Show credential status and setup help |
-| `dogfetch version` | Print version information |
-| `dogfetch` (no args) | Live home view: tool path, auth status, example commands |
+| Command              | What it does                                                               |
+|----------------------|----------------------------------------------------------------------------|
+| `dogfetch fetch`     | Fetch raw log lines (the default — `dogfetch --query …` is shorthand)      |
+| `dogfetch summary`   | Counts by status/service + a timeline, via the Aggregate API (no raw logs) |
+| `dogfetch patterns`  | Cluster messages into templates so repetitive logs collapse to a few rows  |
+| `dogfetch auth`      | Show credential status and setup help                                      |
+| `dogfetch version`   | Print version information                                                  |
+| `dogfetch` (no args) | Live home view: tool path, auth status, example commands                   |
 
 For agents the cheap-to-expensive order is **`summary` → `patterns` → `fetch --limit`**.
 
@@ -150,8 +176,8 @@ dogfetch --query 'service:database' --format json --output db-logs.json
 
 ### Summaries (no raw logs)
 
-`dogfetch summary` answers "how many, what kind, when" with one fast call to
-Datadog's Aggregate API — no pagination, no raw log payloads:
+`dogfetch summary` answers "how many, what kind, when" with one fast call to Datadog's Aggregate API — no
+pagination, no raw log payloads:
 
 ```bash
 dogfetch summary --query 'service:web' --from 2h
@@ -171,14 +197,13 @@ timeline[24]{time,count}:
   ...
 ```
 
-Group-bys show the top 25 by count (a help hint reports the full distinct
-count when truncated). `--format json` emits the same data as a JSON object.
+Group-bys show the top 25 by count (a help hint reports the full distinct count when truncated).
+`--format json` emits the same data as a JSON object.
 
 ### Patterns (collapse repetitive logs)
 
-`dogfetch patterns` clusters messages drain-style: volatile tokens (numbers,
-hex ids, UUIDs, IPs, quoted values) become `<*>`, so a flood of similar logs
-reads as a few templates with counts:
+`dogfetch patterns` clusters messages drain-style: volatile tokens (numbers, hex ids, UUIDs, IPs, quoted
+values) become `<*>`, so a flood of similar logs reads as a few templates with counts:
 
 ```bash
 dogfetch patterns --query 'service:web status:error' --from 2h
@@ -192,8 +217,8 @@ patterns[3]{count,first_seen,last_seen,pattern}:
   16,2026-06-11T08:12:44Z,2026-06-11T09:40:02Z,schema migration completed successfully
 ```
 
-Scans up to 10,000 logs by default (`--limit` to change), shows the top 50
-patterns (`--top`), and `--samples` adds one raw example per pattern.
+Scans up to 10,000 logs by default (`--limit` to change), shows the top 50 patterns (`--top`), and `--samples`
+adds one raw example per pattern.
 
 ### Command Line Options (fetch)
 
@@ -253,8 +278,8 @@ patterns (`--top`), and `--samples` adds one raw example per pattern.
 
 #### Streaming Large Datasets
 
-NDJSON (the default when writing to a file with `--output`) streams results as
-they're fetched, minimizing memory usage:
+NDJSON (the default when writing to a file with `--output`) streams results as they're fetched, minimizing
+memory usage:
 
 ```bash
 dogfetch --query 'service:api' \
@@ -267,7 +292,7 @@ dogfetch --query 'service:api' --format ndjson | jq -r '.attributes.message'
 
 #### Resume After Interruption
 
-If a large fetch is interrupted, you can resume from where it left off. The cursor value is printed to stderr 
+If a large fetch is interrupted, you can resume from where it left off. The cursor value is printed to stderr
 when the fetch stops:
 
 ```bash
@@ -283,10 +308,10 @@ dogfetch --query 'service:web' \
   --append
 ```
 
-**Why manual checkpointing?** The Datadog SDK provides automatic pagination helpers, but they don't expose 
-the cursor or allow resuming from a specific point. By managing pagination manually, we can print the cursor
-after each page and allow you to resume long-running fetches if they're interrupted by network issues, rate 
-limits, or system shutdowns. This is particularly useful for large exports that may take hours.
+**Why manual checkpointing?** The Datadog SDK provides automatic pagination helpers, but they don't expose the
+cursor or allow resuming from a specific point. By managing pagination manually, we can print the cursor after
+each page and allow you to resume long-running fetches if they're interrupted by network issues, rate limits,
+or system shutdowns. This is particularly useful for large exports that may take hours.
 
 #### Query Multiple Indexes
 
@@ -305,9 +330,9 @@ dogfetch --query 'service:web' --errors-out progress.log > logs.ndjson
 
 ### TOON (default on stdout)
 
-A compact tabular format ([TOON](https://toonformat.dev)) with a default field
-projection (`timestamp,status,service,message`). Built for agents — roughly 70%
-smaller than the equivalent raw JSON. Read it directly; no parsing needed:
+A compact tabular format ([TOON](https://toonformat.dev)) with a default field projection
+(`timestamp,status,service,message`). Built for agents — roughly 70% smaller than the equivalent raw JSON.
+Read it directly; no parsing needed:
 
 ```
 count: 2
@@ -326,17 +351,31 @@ or `--format json` (or `--output`, which defaults to ndjson).
 Each log is a separate JSON object on its own line:
 
 ```json
-{"id":"...","attributes":{"message":"...","timestamp":"..."}}
-{"id":"...","attributes":{"message":"...","timestamp":"..."}}
+{
+  "id": "...",
+  "attributes": {
+    "message": "...",
+    "timestamp": "..."
+  }
+}
+{
+  "id": "...",
+  "attributes": {
+    "message": "...",
+    "timestamp": "..."
+  }
+}
 ```
 
 This format:
+
 - Uses minimal memory (logs are streamed as they're fetched)
 - Can be processed line-by-line with standard tools
 - Supports checkpoint/resume with `--cursor` and `--append`
 - Works well with pipes and streaming tools
 
 Process with standard tools:
+
 ```bash
 # Count logs
 wc -l logs.ndjson
@@ -375,8 +414,51 @@ Outputs a single JSON object with all logs in an array:
 }
 ```
 
-This format buffers all logs in memory before writing. Use for smaller datasets or when you need the 
-metadata wrapper.
+This format buffers all logs in memory before writing. Use for smaller datasets or when you need the metadata
+wrapper.
+
+## Built for agents
+
+dogfetch is designed [AXI](https://axi.md)-first — an agent is the primary caller, human interactive use the
+secondary case:
+
+- **Compact by default** - TOON on stdout, minimal field projection, no wasted tokens
+- **Cheap-to-expensive ladder** - `summary` (aggregates only) → `patterns` (clustered) → `fetch --limit`
+  (raw), so agents reach for raw logs last
+- **Predictable, greppable output** - stable flags, resume cursors on interruption, machine-parseable formats
+  (TOON, NDJSON, JSON)
+- **Zero-setup path for agents** - the Claude Code plugin ships a skill teaching the call order plus a
+  self-installing binary wrapper
+
+## Benchmarks
+
+A raw-fetch comparison against [the official Datadog MCP server](https://docs.datadoghq.com/mcp_server/setup/)
+'s
+`search_datadog_logs` tool, run against one real account's logs (not a synthetic fixture — see caveat below),
+same query and time window for every tool, tokens counted with OpenAI's `tiktoken` (`cl100k_base`) as a
+standard proxy tokenizer:
+
+| Source                                                         | Logs | Tokens | Tokens/log |
+|----------------------------------------------------------------|-----:|-------:|-----------:|
+| dogfetch, TOON (default fields)                                |  200 | 31,694 |      158.5 |
+| dogfetch, NDJSON (full objects)                                |  200 | 70,198 |      351.0 |
+| Datadog MCP `search_datadog_logs` (default, 5000-token budget) |   27 |  7,775 |      287.9 |
+| Datadog MCP `search_datadog_logs` (20000-token hard cap)       |  147 | 31,411 |      213.7 |
+
+dogfetch's TOON output returns all 200 logs for about the same token count the MCP tool spends at its hard cap
+to return 147 — and the MCP tool never reaches 200 logs in a single call regardless of budget; getting the
+rest means a second call with `start_at`. Per log, TOON is ~26% cheaper than the MCP tool's best case and
+~45% cheaper than its default. NDJSON is included as the lossless baseline — expected to cost more, useful as
+a sanity check (2.2x TOON, all else equal).
+
+**Caveat:** the MCP tool's own `max_tokens` parameter didn't match what `tiktoken` counted (asked for a
+5000-token budget, got 7,775 back) — its internal token accounting isn't `cl100k_base`. Count actual output
+yourself rather than trusting either tool's self-reported number. This was one run against one personal
+account's logs at one point in time, not a controlled fixture — rerun it on your own data before citing the
+numbers as general truth; the shape of your logs (message length, field count, repetition) will move these
+figures.
+
+See [docs/benchmarks.md](docs/benchmarks.md) for the exact steps to reproduce this against your own data.
 
 ## Architecture
 
@@ -416,7 +498,8 @@ metadata wrapper.
 - **Transient errors** (network timeouts, 5xx): Exponential backoff retry (3 attempts)
 - **Rate limits** (429): Extended backoff based on Retry-After header
 - **Permanent errors** (400, 401, 403): Fail immediately with clear message
-- **Context cancellation** (Ctrl+C): Graceful shutdown, print current cursor (works on Windows, macOS, and Linux)
+- **Context cancellation** (Ctrl+C): Graceful shutdown, print current cursor (works on Windows, macOS, and
+  Linux)
 
 ## Using with Claude Code
 
@@ -430,13 +513,12 @@ Install the plugin — it ships the skill and handles the binary automatically:
 The bundled skill ([skills/dogfetch/SKILL.md](skills/dogfetch/SKILL.md))
 teaches Claude Datadog query syntax and the token-cheap call order:
 `summary` (counts, no raw logs) → `patterns` (collapse repetitive logs) →
-`fetch --limit` (raw lines, projected fields). The wrapper script downloads
-a sha256-verified release binary on first use and caches it.
+`fetch --limit` (raw lines, projected fields). The wrapper script downloads a sha256-verified release binary
+on first use and caches it.
 
 The only manual step is Datadog credentials: put `DD_API_KEY` and
 `DD_APP_KEY` in `~/.config/dogfetch/env` (chmod 600) or export them; run
-`dogfetch auth` to check. Other agents can copy the same SKILL.md — it's
-plain markdown over a plain CLI.
+`dogfetch auth` to check. Other agents can copy the same SKILL.md — it's plain markdown over a plain CLI.
 
 ## Contributing
 
@@ -448,27 +530,27 @@ Releases are automated using GitHub Actions and GoReleaser. To create a new rele
 
 1. **Bump the plugin version, commit, and tag — all in one step:**
    ```bash
-   make release-tag V=0.2.0
+   make release-tag V=0.3.0
    ```
-   This updates `.claude-plugin/plugin.json` `version` to `0.2.0`, commits
-   that change, and creates tag `v0.2.0` on top of it, so the version bump
-   and the tag point at the same commit. Requires a clean working tree.
+   This updates `.claude-plugin/plugin.json` `version` to `0.3.0`, commits that change, and creates tag
+   `v0.3.0` on top of it, so the version bump and the tag point at the same commit. Requires a clean working
+   tree.
 
 2. **Review, then push both:**
    ```bash
    git show
    git push origin HEAD
-   git push origin v0.2.0
+   git push origin v0.3.0
    ```
 
 3. **GitHub Actions will automatically:**
-   - Check the plugin version matches the tag and the wrapper script parses
-   - Run all tests
-   - Build binaries for Linux, macOS, and Windows (amd64 and arm64)
-   - Create a GitHub release with:
-     - Release notes from commits since last tag
-     - Pre-built binaries
-     - Checksums for verification (used by the plugin wrapper's sha256 check)
+    - Check the plugin version matches the tag and the wrapper script parses
+    - Run all tests
+    - Build binaries for Linux, macOS, and Windows (amd64 and arm64)
+    - Create a GitHub release with:
+        - Release notes from commits since last tag
+        - Pre-built binaries
+        - Checksums for verification (used by the plugin wrapper's sha256 check)
 
    The release workflow only *validates* the tagged commit. You tag it. Goreleaser builds it if it matches.
 
@@ -488,3 +570,7 @@ MIT
 ## Acknowledgments
 
 Built with the [Datadog Go API Client](https://github.com/DataDog/datadog-api-client-go).
+
+Written mostly by robots, for robots. Claude Code (Fable, Opus, and Sonnet) did the bulk of the
+implementation, Codex played the adversary in review, and GitHub Copilot reviewed diffs and kept the one human
+editor honest. Any remaining bugs are, naturally, the human's fault.

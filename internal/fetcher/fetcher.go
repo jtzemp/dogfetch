@@ -21,29 +21,37 @@ type Fetcher struct {
 	errOut io.Writer
 }
 
-// New creates a new Fetcher
+// New creates a new Fetcher writing through the configured format.
 func New(cfg *config.Config, errOut io.Writer) (*Fetcher, error) {
-	if errOut == nil {
-		errOut = os.Stderr
-	}
-
-	client := NewClient(cfg.APIKey, cfg.AppKey, cfg.Site)
-
-	w, err := writer.New(cfg.Format, cfg.OutputPath, cfg.Append)
+	w, err := writer.New(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create writer: %w", err)
 	}
+	return NewWithWriter(cfg, w, errOut), nil
+}
 
+// NewWithWriter creates a Fetcher that feeds pages into a custom
+// writer (e.g. the patterns clusterer) instead of a format writer.
+func NewWithWriter(cfg *config.Config, w writer.Writer, errOut io.Writer) *Fetcher {
+	if errOut == nil {
+		errOut = os.Stderr
+	}
 	return &Fetcher{
-		client: client,
+		client: NewClient(cfg.APIKey, cfg.AppKey, cfg.Site),
 		config: cfg,
 		writer: w,
 		errOut: errOut,
-	}, nil
+	}
+}
+
+// Result summarizes a completed (or interrupted) fetch.
+type Result struct {
+	Total      int
+	NextCursor string // non-empty when more logs are available (limit hit or cancelled)
 }
 
 // Fetch retrieves logs from Datadog
-func (f *Fetcher) Fetch(ctx context.Context) error {
+func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 	defer f.writer.Close()
 
 	cursor := f.config.Cursor
@@ -56,25 +64,62 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 	fmt.Fprintf(f.errOut, "Page size: %d\n", f.config.PageSize)
 	fmt.Fprintf(f.errOut, "\n")
 
+	result := func(nextCursor string) *Result {
+		return &Result{Total: totalLogs, NextCursor: nextCursor}
+	}
+
+	finalize := func(nextCursor string) error {
+		return f.writer.Finalize(writer.Meta{
+			Total:      totalLogs,
+			NextCursor: nextCursor,
+			Query:      f.config.Query,
+			From:       f.config.From,
+			To:         f.config.To,
+		})
+	}
+
 	for {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
 			fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
-			return f.writer.Finalize()
+			return result(cursor), finalize(cursor)
 		default:
 		}
 
-		// Fetch page with retry
-		resp, _, err := f.fetchPageWithRetry(ctx, cursor)
-		if err != nil {
-			return err
+		// Never request more than --limit still needs: the cursor the
+		// API returns points past the whole page it served, so
+		// over-fetching and trimming locally would emit a cursor that
+		// skips the trimmed remainder on resume.
+		pageSize := f.config.PageSize
+		if f.config.Limit > 0 {
+			if remaining := f.config.Limit - totalLogs; remaining < int(pageSize) {
+				pageSize = int32(remaining)
+			}
 		}
 
-		// Write logs
+		// Fetch page with retry
+		resp, _, err := f.fetchPageWithRetry(ctx, cursor, pageSize)
+		if err != nil {
+			if ctx.Err() != nil {
+				fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
+				return result(cursor), finalize(cursor)
+			}
+			return result(cursor), err
+		}
+
+		// Trim to --limit before writing. With the page size capped
+		// above this is a no-op slice; it stays as a guard against a
+		// server that over-returns.
 		logs := resp.GetData()
+		limitHit := false
+		if f.config.Limit > 0 && totalLogs+len(logs) >= f.config.Limit {
+			logs = logs[:f.config.Limit-totalLogs]
+			limitHit = true
+		}
+
 		if err := f.writer.WritePage(logs); err != nil {
-			return fmt.Errorf("failed to write page: %w", err)
+			return result(cursor), fmt.Errorf("failed to write page: %w", err)
 		}
 
 		pageCount++
@@ -99,6 +144,14 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 		}
 		fmt.Fprintf(f.errOut, "\n")
 
+		if limitHit {
+			if newCursor != "" {
+				fmt.Fprintf(f.errOut, "\nLimit of %d reached. More logs available. Resume with --cursor '%s'\n", f.config.Limit, newCursor)
+			}
+			fmt.Fprintf(f.errOut, "\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
+			return result(newCursor), finalize(newCursor)
+		}
+
 		// Check if we're done
 		if newCursor == "" || len(logs) == 0 {
 			break
@@ -109,44 +162,18 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 
 	fmt.Fprintf(f.errOut, "\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
 
-	return f.writer.Finalize()
+	return result(""), finalize("")
 }
 
 // fetchPageWithRetry fetches a single page with retry logic
-func (f *Fetcher) fetchPageWithRetry(ctx context.Context, cursor string) (datadogV2.LogsListResponse, *http.Response, error) {
-	var resp datadogV2.LogsListResponse
-	var httpResp *http.Response
-	var err error
-
-	attempt := 0
-	for {
-		resp, httpResp, err = f.fetchPage(ctx, cursor)
-
-		retryErr := ClassifyError(err, httpResp)
-		if retryErr == nil {
-			// Success
-			return resp, httpResp, nil
-		}
-
-		shouldRetry, backoff := ShouldRetry(attempt, retryErr)
-		if !shouldRetry {
-			return resp, httpResp, FormatRetryError(err, httpResp)
-		}
-
-		attempt++
-		fmt.Fprintf(f.errOut, "Error (attempt %d/%d): %v - retrying in %v...\n", attempt, maxRetries, err, backoff)
-
-		select {
-		case <-ctx.Done():
-			return resp, httpResp, ctx.Err()
-		case <-time.After(backoff):
-			// Continue to retry
-		}
-	}
+func (f *Fetcher) fetchPageWithRetry(ctx context.Context, cursor string, pageSize int32) (datadogV2.LogsListResponse, *http.Response, error) {
+	return withRetry(ctx, f.errOut, f.config.Site, func(ctx context.Context) (datadogV2.LogsListResponse, *http.Response, error) {
+		return f.fetchPage(ctx, cursor, pageSize)
+	})
 }
 
 // fetchPage fetches a single page from the API
-func (f *Fetcher) fetchPage(ctx context.Context, cursor string) (datadogV2.LogsListResponse, *http.Response, error) {
+func (f *Fetcher) fetchPage(ctx context.Context, cursor string, pageSize int32) (datadogV2.LogsListResponse, *http.Response, error) {
 	// Add API keys to context
 	ctx = f.client.GetContext(ctx)
 
@@ -173,8 +200,8 @@ func (f *Fetcher) fetchPage(ctx context.Context, cursor string) (datadogV2.LogsL
 		opts.FilterTo = &f.config.To
 	}
 
-	// Page size
-	opts.PageLimit = &f.config.PageSize
+	// Page size (already capped to what --limit still needs)
+	opts.PageLimit = &pageSize
 
 	// Cursor
 	if cursor != "" {

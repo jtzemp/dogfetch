@@ -271,13 +271,13 @@ func TestFormatRetryError(t *testing.T) {
 			name:     "500 server error",
 			err:      errors.New("internal server error"),
 			httpResp: &http.Response{StatusCode: 500},
-			wantMsg:  "API error (status 500)",
+			wantMsg:  "API error (HTTP 500)",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := FormatRetryError(tt.err, tt.httpResp)
+			got := FormatRetryError(tt.err, tt.httpResp, "")
 			require.NotNil(t, got)
 			assert.Contains(t, got.Error(), tt.wantMsg)
 		})

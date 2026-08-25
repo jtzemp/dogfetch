@@ -1,132 +1,70 @@
 package cmd
 
 import (
-	"context"
-	"flag"
 	"fmt"
 	"os"
-	"os/signal"
+	"strings"
 
-	"github.com/jtzemp/dogfetch/internal/config"
-	"github.com/jtzemp/dogfetch/internal/fetcher"
+	"github.com/jtzemp/dogfetch/internal/axierr"
 	"github.com/jtzemp/dogfetch/internal/version"
 )
 
-// Execute runs the CLI
-func Execute() {
-	// Define flags
-	versionFlag := flag.Bool("version", false, "Print version information")
-	query := flag.String("query", "", "The filter query (search term)")
-	index := flag.String("index", "main", "Which index to read from")
-	from := flag.String("from", "", "Start date/time (default: 24 hours ago)")
-	to := flag.String("to", "", "End date/time (default: now)")
-	pageSize := flag.Int("pageSize", 1000, "Results per page (max 5000)")
-	output := flag.String("output", "", "Output file path (default: stdout)")
-	format := flag.String("format", "ndjson", "Output format: json or ndjson")
-	cursor := flag.String("cursor", "", "Page cursor for resuming")
-	appendFlag := flag.Bool("append", false, "Append to output file (ndjson only)")
-	errorsOut := flag.String("errors-out", "", "Write errors to file (default: stderr)")
+// Exit codes follow the AXI convention. These alias the axierr
+// constants so the process contract has a single definition: fail()
+// returns e.Exit, which comes from the same source.
+const (
+	exitOK    = axierr.ExitOK
+	exitError = axierr.ExitError
+	exitUsage = axierr.ExitUsage
+)
 
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "dogfetch - Fetch logs from Datadog\n\n")
-		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  dogfetch --query 'service:web status:error'\n")
-		fmt.Fprintf(os.Stderr, "  dogfetch --query 'service:web' --output logs.ndjson\n")
-		fmt.Fprintf(os.Stderr, "  dogfetch --version\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nEnvironment Variables:\n")
-		fmt.Fprintf(os.Stderr, "  DD_API_KEY   Datadog API key (required)\n")
-		fmt.Fprintf(os.Stderr, "  DD_APP_KEY   Datadog Application key (required)\n")
-		fmt.Fprintf(os.Stderr, "  DD_SITE      Datadog site (optional, default: datadoghq.com)\n")
+// Execute runs the CLI and returns the process exit code.
+func Execute() int {
+	args := os.Args[1:]
+
+	if len(args) == 0 {
+		// AXI content-first home view: live state, not a usage manual.
+		return runHome()
 	}
 
-	flag.Parse()
+	sub, rest := args[0], args[1:]
 
-	// Handle version flag
-	if *versionFlag {
+	// Back-compat shim: `dogfetch --query ...` is an implicit fetch.
+	if strings.HasPrefix(sub, "-") {
+		return runFetch(args)
+	}
+
+	switch sub {
+	case "fetch":
+		return runFetch(rest)
+	case "summary":
+		return runSummary(rest)
+	case "patterns":
+		return runPatterns(rest)
+	case "auth":
+		return runAuth()
+	case "version":
 		fmt.Println(version.Info())
-		os.Exit(0)
+		return exitOK
+	default:
+		printRootUsage(os.Stderr)
+		return fail("toon", axierr.Usage(axierr.UsageCodeUnknownCommand,
+			fmt.Sprintf("unknown command %q", sub),
+			"dogfetch summary --query 'service:web' --from 2h",
+			"dogfetch patterns --query 'service:web' --from 2h",
+			"dogfetch fetch --query 'service:web status:error' --limit 100",
+			"dogfetch auth",
+			"dogfetch version"))
 	}
+}
 
-	// Setup error output
-	errOut := os.Stderr
-	if *errorsOut != "" {
-		f, err := os.OpenFile(*errorsOut, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to open error output file: %v\n", err)
-			os.Exit(1)
-		}
-		defer f.Close()
-		errOut = f
-	}
-
-	// Build config
-	cfg := &config.Config{
-		Query:      *query,
-		Index:      *index,
-		PageSize:   int32(*pageSize),
-		OutputPath: *output,
-		Format:     *format,
-		Cursor:     *cursor,
-		Append:     *appendFlag,
-		APIKey:     os.Getenv("DD_API_KEY"),
-		AppKey:     os.Getenv("DD_APP_KEY"),
-		Site:       os.Getenv("DD_SITE"),
-	}
-
-	// Parse time range
-	if *from != "" {
-		parsedFrom, err := config.ParseTime(*from)
-		if err != nil {
-			fmt.Fprintf(errOut, "Error parsing --from: %v\n", err)
-			os.Exit(1)
-		}
-		cfg.From = parsedFrom
-	} else {
-		cfg.From = config.DefaultFrom()
-	}
-
-	if *to != "" {
-		parsedTo, err := config.ParseTime(*to)
-		if err != nil {
-			fmt.Fprintf(errOut, "Error parsing --to: %v\n", err)
-			os.Exit(1)
-		}
-		cfg.To = parsedTo
-	}
-
-	// Validate config
-	if err := cfg.Validate(); err != nil {
-		fmt.Fprintf(errOut, "Configuration error: %v\n", err)
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	// Create fetcher
-	f, err := fetcher.New(cfg, errOut)
-	if err != nil {
-		fmt.Fprintf(errOut, "Failed to create fetcher: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Setup signal handling for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-	// os.Interrupt works on both Unix and Windows (Ctrl+C)
-	signal.Notify(sigChan, os.Interrupt)
-
-	go func() {
-		<-sigChan
-		fmt.Fprintf(errOut, "\nReceived interrupt signal, shutting down gracefully...\n")
-		cancel()
-	}()
-
-	// Execute fetch
-	if err := f.Fetch(ctx); err != nil {
-		fmt.Fprintf(errOut, "Fetch failed: %v\n", err)
-		os.Exit(1)
-	}
+func printRootUsage(w *os.File) {
+	fmt.Fprintf(w, "dogfetch - Fetch logs from Datadog\n\n")
+	fmt.Fprintf(w, "Usage:\n")
+	fmt.Fprintf(w, "  dogfetch fetch --query 'service:web status:error'   Fetch logs (default command)\n")
+	fmt.Fprintf(w, "  dogfetch summary --query 'service:web' --from 2h    Aggregates: total, by status/service, timeline\n")
+	fmt.Fprintf(w, "  dogfetch patterns --query 'service:web' --from 2h   Cluster messages into templates\n")
+	fmt.Fprintf(w, "  dogfetch auth                                       Credential status and setup help\n")
+	fmt.Fprintf(w, "  dogfetch version                                    Print version information\n\n")
+	fmt.Fprintf(w, "Run 'dogfetch fetch --help' for command options.\n")
 }

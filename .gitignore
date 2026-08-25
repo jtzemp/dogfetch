@@ -1,5 +1,5 @@
 # Binaries
-dogfetch
+/dogfetch
 *.exe
 *.dll
 *.so
@@ -8,9 +8,11 @@ dogfetch
 # Test binaries
 *.test
 
-# Output files
-*.json
-*.ndjson
+/*.json
+/*.ndjson
+
+# Local tool state
+.claude/settings.local.json
 
 # Go workspace files
 go.work

@@ -26,6 +26,8 @@ git tag -a v1.0.0 -m "Release v1.0.0"
 git push origin v1.0.0
 ```
 
+The release workflow automatically syncs `.claude-plugin/plugin.json` to the tag version and pushes that bump to the default branch if needed, so the plugin metadata stays aligned with the newest release.
+
 ### 3. Wait for GitHub Actions
 
 The release workflow will automatically:

@@ -1,17 +1,21 @@
 package fetcher
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/jtzemp/dogfetch/internal/axierr"
 )
 
 const (
-	maxRetries     = 3
-	baseBackoff    = 1 * time.Second
-	rateLimitWait  = 60 * time.Second
+	maxRetries    = 3
+	baseBackoff   = 1 * time.Second
+	rateLimitWait = 60 * time.Second
 )
 
 // RetryableError wraps an error with retry information
@@ -105,20 +109,68 @@ func ShouldRetry(attempt int, err *RetryableError) (bool, time.Duration) {
 	return true, ExponentialBackoff(attempt)
 }
 
-// FormatRetryError creates a user-friendly error message
-func FormatRetryError(err error, httpResp *http.Response) error {
+// FormatRetryError translates a failed request into a structured,
+// agent-actionable error. site is the resolved DD_SITE, used to point
+// the auth-help links at the right org.
+func FormatRetryError(err error, httpResp *http.Response, site string) error {
 	if httpResp == nil {
-		return fmt.Errorf("network error: %w", err)
+		return axierr.Runtime("network_error", fmt.Sprintf("network error: %v", err),
+			"Check connectivity and DD_SITE (current default: datadoghq.com)")
 	}
 
 	switch httpResp.StatusCode {
 	case 401:
-		return fmt.Errorf("authentication failed: check DD_API_KEY and DD_APP_KEY")
+		return axierr.Runtime("auth_failed",
+			"authentication failed: Datadog rejected DD_API_KEY/DD_APP_KEY (HTTP 401)",
+			axierr.AuthHelp(site)...)
 	case 403:
-		return fmt.Errorf("permission denied: check your API key has logs_read_data permission")
+		return axierr.Runtime("permission_denied",
+			"permission denied: the Application key lacks the logs_read_data permission (HTTP 403)",
+			axierr.AuthHelp(site)...)
 	case 429:
-		return fmt.Errorf("rate limit exceeded: %w", err)
+		return axierr.Runtime("rate_limited",
+			"Datadog rate limit exceeded after retries",
+			"Wait a minute, then rerun; lower --pageSize or narrow the time range")
 	default:
-		return fmt.Errorf("API error (status %d): %w", httpResp.StatusCode, err)
+		return axierr.Runtime("api_error",
+			fmt.Sprintf("Datadog API error (HTTP %d): %v", httpResp.StatusCode, err))
+	}
+}
+
+// withRetry drives call until it succeeds, the error is not
+// retryable, or the attempt budget runs out. Progress is reported on
+// errOut. Both the search and aggregate APIs return (T, *http.Response,
+// error), so one loop serves both.
+func withRetry[T any](
+	ctx context.Context,
+	errOut io.Writer,
+	site string,
+	call func(context.Context) (T, *http.Response, error),
+) (T, *http.Response, error) {
+	var resp T
+	var httpResp *http.Response
+	var err error
+
+	for attempt := 0; ; {
+		resp, httpResp, err = call(ctx)
+
+		retryErr := ClassifyError(err, httpResp)
+		if retryErr == nil {
+			return resp, httpResp, nil
+		}
+
+		shouldRetry, backoff := ShouldRetry(attempt, retryErr)
+		if !shouldRetry {
+			return resp, httpResp, FormatRetryError(err, httpResp, site)
+		}
+
+		attempt++
+		fmt.Fprintf(errOut, "Error (attempt %d/%d): %v - retrying in %v...\n", attempt, maxRetries, err, backoff)
+
+		select {
+		case <-ctx.Done():
+			return resp, httpResp, ctx.Err()
+		case <-time.After(backoff):
+		}
 	}
 }

@@ -22,8 +22,20 @@ jobs:
         with:
           go-version: stable
 
+      - name: Check plugin version matches tag
+        run: |
+          plugin_version=$(jq -r .version .claude-plugin/plugin.json)
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$plugin_version" != "$tag_version" ]; then
+            echo "::error::.claude-plugin/plugin.json version ($plugin_version) does not match release tag ($tag_version). Run 'make release-tag V=$tag_version' and push before tagging."
+            exit 1
+          fi
+
+      - name: Check wrapper script syntax
+        run: sh -n scripts/dogfetch.sh
+
       - name: Run tests
-        run: go test -v ./...
+        run: go test -tags testseam -v ./...
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

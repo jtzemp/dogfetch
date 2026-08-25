@@ -1,7 +1,11 @@
 package main
 
-import "github.com/jtzemp/dogfetch/cmd"
+import (
+	"os"
+
+	"github.com/jtzemp/dogfetch/cmd"
+)
 
 func main() {
-	cmd.Execute()
+	os.Exit(cmd.Execute())
 }

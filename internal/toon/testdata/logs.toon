@@ -1,0 +1,8 @@
+count: 3
+logs[3]{timestamp,status,service,message}:
+  2026-06-11T10:00:00Z,error,web,connection refused
+  2026-06-11T10:00:01Z,warn,api,"timeout after 5s, retrying"
+  2026-06-11T10:00:02Z,info,web,"user \"bob\" logged in"
+help[2]:
+  Widen output with --fields timestamp,status,service,message,host
+  Resume with --cursor '<cursor>'

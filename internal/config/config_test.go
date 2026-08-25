@@ -72,6 +72,37 @@ func TestParseTimeUnix(t *testing.T) {
 	assert.Equal(t, actualTime, want)
 }
 
+func TestParseTimeRelative(t *testing.T) {
+	tests := []struct {
+		input string
+		want  time.Duration
+	}{
+		{"30s", 30 * time.Second},
+		{"15m", 15 * time.Minute},
+		{"2h", 2 * time.Hour},
+		{"3d", 3 * 24 * time.Hour},
+		{"1w", 7 * 24 * time.Hour},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := ParseTime(tt.input)
+			require.NoError(t, err)
+			expected := time.Now().Add(-tt.want)
+			assert.WithinDuration(t, expected, got, 2*time.Second)
+		})
+	}
+}
+
+func TestParseTimeRelativeInvalid(t *testing.T) {
+	for _, input := range []string{"15x", "m15", "-15m", "1.5h"} {
+		t.Run(input, func(t *testing.T) {
+			_, err := ParseTime(input)
+			assert.Error(t, err)
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -175,7 +206,7 @@ func TestValidate(t *testing.T) {
 			errMsg:  "--append only works with",
 		},
 		{
-			name: "cursor without ndjson",
+			name: "cursor with json",
 			config: Config{
 				Query:    "service:web",
 				APIKey:   "test-api-key",
@@ -185,7 +216,18 @@ func TestValidate(t *testing.T) {
 				Cursor:   "test-cursor",
 			},
 			wantErr: true,
-			errMsg:  "--cursor only works with",
+			errMsg:  "--cursor does not work with --format json",
+		},
+		{
+			name: "cursor with toon allowed",
+			config: Config{
+				Query:    "service:web",
+				APIKey:   "test-api-key",
+				AppKey:   "test-app-key",
+				PageSize: 1000,
+				Format:   "toon",
+				Cursor:   "test-cursor",
+			},
 		},
 		{
 			name: "from after to",
@@ -205,7 +247,10 @@ func TestValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
+			err := tt.config.ValidateUsage()
+			if err == nil {
+				err = tt.config.ValidateAuth()
+			}
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -228,4 +273,38 @@ func TestDefaultFrom(t *testing.T) {
 
 	assert.False(t, got.Before(expectedBefore.Add(-time.Second)))
 	assert.False(t, got.After(expectedAfter.Add(time.Second)))
+}
+
+func TestValidateSite(t *testing.T) {
+	valid := []string{
+		"",
+		"datadoghq.com",
+		"datadoghq.eu",
+		"us3.datadoghq.com",
+		"us5.datadoghq.com",
+		"ap1.datadoghq.com",
+		"ap2.datadoghq.com",
+		"ddog-gov.com",
+	}
+	for _, s := range valid {
+		assert.NoError(t, ValidateSite(s), "site %q should be valid", s)
+	}
+
+	// A full URL must be rejected: keys are attached to every request,
+	// so a URL site would redirect credential-bearing requests.
+	invalid := []string{
+		"https://attacker.example",
+		"http://127.0.0.1:8080",
+		"https://api.datadoghq.com",
+		"datadoghq.com/path",
+		"datadoghq.com:443",
+		"has space.com",
+		"nodot",
+		"evil.example",
+		"datadoghq.com.evil.example",
+		"us1.datadoghq.com",
+	}
+	for _, s := range invalid {
+		assert.Error(t, ValidateSite(s), "site %q should be rejected", s)
+	}
 }

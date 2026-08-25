@@ -6,18 +6,20 @@ import (
 	"os"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
+	"github.com/jtzemp/dogfetch/internal/project"
 )
 
 // NDJSONWriter streams logs to a newline-delimited JSON file
 type NDJSONWriter struct {
-	writer     io.Writer
-	closer     io.Closer
-	encoder    *json.Encoder
+	writer      io.Writer
+	closer      io.Closer
+	encoder     *json.Encoder
+	proj        *project.Projector // nil = full log objects
 	shouldClose bool
 }
 
 // NewNDJSONWriter creates a new NDJSON writer for a file
-func NewNDJSONWriter(path string, append bool) (*NDJSONWriter, error) {
+func NewNDJSONWriter(path string, append bool, proj *project.Projector) (*NDJSONWriter, error) {
 	flags := os.O_CREATE | os.O_WRONLY
 	if append {
 		flags |= os.O_APPEND
@@ -34,15 +36,17 @@ func NewNDJSONWriter(path string, append bool) (*NDJSONWriter, error) {
 		writer:      f,
 		closer:      f,
 		encoder:     json.NewEncoder(f),
+		proj:        proj,
 		shouldClose: true,
 	}, nil
 }
 
 // NewNDJSONWriterWithOutput creates a new NDJSON writer for any io.Writer
-func NewNDJSONWriterWithOutput(w io.Writer) (*NDJSONWriter, error) {
+func NewNDJSONWriterWithOutput(w io.Writer, proj *project.Projector) (*NDJSONWriter, error) {
 	return &NDJSONWriter{
 		writer:      w,
 		encoder:     json.NewEncoder(w),
+		proj:        proj,
 		shouldClose: false,
 	}, nil
 }
@@ -50,7 +54,11 @@ func NewNDJSONWriterWithOutput(w io.Writer) (*NDJSONWriter, error) {
 // WritePage writes logs immediately to the file (one per line)
 func (w *NDJSONWriter) WritePage(logs []datadogV2.Log) error {
 	for _, log := range logs {
-		if err := w.encoder.Encode(log); err != nil {
+		var v any = log
+		if w.proj != nil {
+			v = w.proj.Map(log)
+		}
+		if err := w.encoder.Encode(v); err != nil {
 			return err
 		}
 	}
@@ -58,7 +66,7 @@ func (w *NDJSONWriter) WritePage(logs []datadogV2.Log) error {
 }
 
 // Finalize is a no-op for NDJSONWriter (already written)
-func (w *NDJSONWriter) Finalize() error {
+func (w *NDJSONWriter) Finalize(Meta) error {
 	return nil
 }
 

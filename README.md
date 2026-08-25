@@ -13,19 +13,44 @@ export DD_APP_KEY=your_app_key
 
 dogfetch --query 'service:web status:error' \
   --from '2024-01-01T00:00:00Z' \
-  --to '2024-01-02T00:00:00Z' | jq -r '.attributes.message'
+  --to '2024-01-02T00:00:00Z' --format ndjson | jq -r '.attributes.message'
 ```
+
+> [!IMPORTANT]
+> **Breaking change:** when writing to **stdout**, the default output format is now
+> [TOON](https://toonformat.dev) (a compact, agent-friendly tabular format) with a
+> minimal field projection (`timestamp,status,service,message`). Pipelines that
+> expect JSON lines on stdout should pass `--format ndjson` or set
+> `DOGFETCH_FORMAT=ndjson`. File export with `--output` still defaults to lossless
+> NDJSON — nothing changes there.
 
 ## Features
 
 - **Simple query interface** - Fetch logs using Datadog's query syntax
-- **Flexible output formats** - JSON or NDJSON (newline-delimited JSON)
+- **Agent-friendly by default** - Compact TOON output with field projection on stdout (~70% smaller than raw JSON)
+- **Pre-computed aggregates** - `dogfetch summary` for counts by status/service and a timeline, without fetching raw logs
+- **Pattern clustering** - `dogfetch patterns` collapses thousands of repetitive logs into a handful of templates
+- **Flexible output formats** - TOON, JSON, or NDJSON (newline-delimited JSON)
 - **Memory efficient streaming** - NDJSON mode streams results to disk with minimal memory usage
 - **Pagination checkpoint/resume** - Save progress and resume from where you left off if interrupted
 - **Configurable time ranges** - Query logs from specific time windows
 - **Cross-platform** - Works on Linux, macOS, and Windows
 
 ## Installation
+
+### Claude Code plugin (recommended for agents)
+
+```
+/plugin marketplace add jtzemp/dogfetch
+/plugin install dogfetch@dogfetch
+```
+
+This installs a skill that teaches Claude the agent-optimal call order
+(`summary` → `patterns` → `fetch --limit`) and a wrapper script that
+auto-downloads a sha256-verified binary from GitHub Releases on first use
+(cached in `~/.cache/dogfetch/`). No manual binary install needed — only the
+one-time Datadog key setup (run `dogfetch auth` or see
+[Prerequisites](#prerequisites)).
 
 ### Pre-built binaries
 
@@ -43,21 +68,29 @@ go install github.com/jtzemp/dogfetch@latest
 git clone https://github.com/jtzemp/dogfetch
 cd dogfetch
 
-# Simple build
-go build -o dogfetch
-
-# Or use make for versioned build
 make build
 ```
 
-### Building with Version Information
+`make build` injects version info from git (tag, commit, build date) via
+`-ldflags`, so `./dogfetch --version` reports something meaningful. A plain
+`go build -o dogfetch` also works but skips that.
 
-The Makefile automatically injects version information from git:
+### Makefile targets
+
+| Target             | What it does                                      |
+|--------------------|---------------------------------------------------|
+| `make build`       | Build `./dogfetch` with version info              |
+| `make install`     | Build and install to `$GOPATH/bin`                |
+| `make test`        | Run the test suite                                |
+| `make test-cover`  | Run tests with coverage                           |
+| `make lint`        | Run `golangci-lint` (matches CI)                  |
+| `make build-all`   | Cross-compile for linux/darwin/windows            |
+| `make version`     | Print the version/commit/date that would be built |
+| `make dev`         | Quick build with no version info injected         |
+| `make clean`       | Remove build artifacts                            |
+| `make release-tag` | Update the version and create a tag for releasing |
 
 ```bash
-# Build with version info
-make build
-
 # Check version
 ./dogfetch --version
 
@@ -78,21 +111,34 @@ export DD_APP_KEY=your_app_key
 Optionally, set your Datadog site if not using the default (datadoghq.com):
 
 ```bash
-export DD_SITE=datadoghq.eu
+export DD_SITE=us3.datadoghq.com
 ```
 
 ## Usage
 
+### Commands
+
+| Command | What it does |
+|---|---|
+| `dogfetch fetch` | Fetch raw log lines (the default — `dogfetch --query …` is shorthand) |
+| `dogfetch summary` | Counts by status/service + a timeline, via the Aggregate API (no raw logs) |
+| `dogfetch patterns` | Cluster messages into templates so repetitive logs collapse to a few rows |
+| `dogfetch auth` | Show credential status and setup help |
+| `dogfetch version` | Print version information |
+| `dogfetch` (no args) | Live home view: tool path, auth status, example commands |
+
+For agents the cheap-to-expensive order is **`summary` → `patterns` → `fetch --limit`**.
+
 ### Basic Usage
 
 ```bash
-# Fetch logs matching a query (outputs to stdout)
+# Fetch logs matching a query (compact TOON on stdout)
 dogfetch --query 'service:web status:error'
 
-# Pipe to a file
-dogfetch --query 'service:web status:error' > logs.ndjson
+# Pipe full JSON lines to a file
+dogfetch --query 'service:web status:error' --format ndjson > logs.ndjson
 
-# Or save directly to a file
+# Or save directly to a file (defaults to lossless ndjson)
 dogfetch --query 'service:web status:error' --output logs.ndjson
 
 # Specify a custom time range
@@ -102,7 +148,54 @@ dogfetch --query 'service:api' --from '2024-01-01T00:00:00Z' --to '2024-01-02T00
 dogfetch --query 'service:database' --format json --output db-logs.json
 ```
 
-### Command Line Options
+### Summaries (no raw logs)
+
+`dogfetch summary` answers "how many, what kind, when" with one fast call to
+Datadog's Aggregate API — no pagination, no raw log payloads:
+
+```bash
+dogfetch summary --query 'service:web' --from 2h
+```
+
+```
+total: 4523
+by_status[3]{status,count}:
+  error,3200
+  warn,1000
+  info,323
+by_service[2]{service,count}:
+  web,4000
+  api,523
+timeline[24]{time,count}:
+  2026-06-11T10:00:00Z,2100
+  ...
+```
+
+Group-bys show the top 25 by count (a help hint reports the full distinct
+count when truncated). `--format json` emits the same data as a JSON object.
+
+### Patterns (collapse repetitive logs)
+
+`dogfetch patterns` clusters messages drain-style: volatile tokens (numbers,
+hex ids, UUIDs, IPs, quoted values) become `<*>`, so a flood of similar logs
+reads as a few templates with counts:
+
+```bash
+dogfetch patterns --query 'service:web status:error' --from 2h
+```
+
+```
+scanned: 9421
+patterns[3]{count,first_seen,last_seen,pattern}:
+  8804,2026-06-11T08:01:12Z,2026-06-11T10:00:41Z,failed to process payment <*> for user <*> card_declined
+  601,2026-06-11T08:00:03Z,2026-06-11T09:58:59Z,connection to <*> timed out after <*>
+  16,2026-06-11T08:12:44Z,2026-06-11T09:40:02Z,schema migration completed successfully
+```
+
+Scans up to 10,000 logs by default (`--limit` to change), shows the top 50
+patterns (`--top`), and `--samples` adds one raw example per pattern.
+
+### Command Line Options (fetch)
 
 ```
 --query string
@@ -111,6 +204,10 @@ dogfetch --query 'service:database' --format json --output db-logs.json
 
 --index string
     Which index to read from (default "main")
+
+--limit int
+    Stop after this many logs (0 = unlimited). Pairs with TOON output to
+    keep agent context small; prints a resume cursor when more remain.
 
 --from string
     Start date/time (default: 24 hours ago)
@@ -128,14 +225,21 @@ dogfetch --query 'service:database' --format json --output db-logs.json
     When not specified, logs are written to stdout and progress to stderr
 
 --format string
-    Output format: "json" or "ndjson" (default "ndjson")
+    Output format: "toon", "json", or "ndjson"
+    (default: "toon" on stdout, "ndjson" with --output)
 
+    toon   - Compact tabular format with field projection, built for agents
     json   - Single JSON array, all data loaded into memory
     ndjson - Newline-delimited JSON, streams as it fetches (low memory)
 
+--fields string
+    Comma-separated fields to include in output
+    (toon default: timestamp,status,service,message; any Datadog
+    attribute path works, e.g. http.status_code)
+
 --cursor string
     Page cursor position for resuming from a specific point
-    Only works with streamable formats (ndjson)
+    Works with ndjson and toon (not json)
 
 --append
     Append to output file instead of overwriting
@@ -149,15 +253,16 @@ dogfetch --query 'service:database' --format json --output db-logs.json
 
 #### Streaming Large Datasets
 
-NDJSON format (the default) streams results as they're fetched, minimizing memory usage:
+NDJSON (the default when writing to a file with `--output`) streams results as
+they're fetched, minimizing memory usage:
 
 ```bash
 dogfetch --query 'service:api' \
   --output large-export.ndjson \
   --pageSize 5000
 
-# Or pipe directly to another tool
-dogfetch --query 'service:api' | jq -r '.attributes.message'
+# Or pipe directly to another tool (force ndjson — stdout defaults to TOON)
+dogfetch --query 'service:api' --format ndjson | jq -r '.attributes.message'
 ```
 
 #### Resume After Interruption
@@ -198,7 +303,25 @@ dogfetch --query 'service:web' --errors-out progress.log > logs.ndjson
 
 ## Output Formats
 
-### NDJSON (default)
+### TOON (default on stdout)
+
+A compact tabular format ([TOON](https://toonformat.dev)) with a default field
+projection (`timestamp,status,service,message`). Built for agents — roughly 70%
+smaller than the equivalent raw JSON. Read it directly; no parsing needed:
+
+```
+count: 2
+logs[2]{timestamp,status,service,message}:
+  2026-06-11T10:00:00Z,error,web,connection refused
+  2026-06-11T10:00:01Z,warn,api,"timeout after 5s, retrying"
+help[1]:
+  Add fields with --fields timestamp,status,service,message,host (any Datadog attribute path works, e.g. http.status_code)
+```
+
+Widen columns with `--fields`. For lossless full objects, use `--format ndjson`
+or `--format json` (or `--output`, which defaults to ndjson).
+
+### NDJSON (default with `--output`)
 
 Each log is a separate JSON object on its own line:
 
@@ -224,8 +347,8 @@ jq 'select(.attributes.status == "error")' logs.ndjson
 # Extract specific field
 jq -r '.attributes.message' logs.ndjson
 
-# Stream and process in real-time
-dogfetch --query 'service:web' | jq -r '.attributes.message'
+# Stream and process in real-time (force ndjson — stdout defaults to TOON)
+dogfetch --query 'service:web' --format ndjson | jq -r '.attributes.message'
 ```
 
 ### JSON
@@ -297,65 +420,23 @@ metadata wrapper.
 
 ## Using with Claude Code
 
-dogfetch works well as a tool for AI coding agents like Claude Code. Since it outputs NDJSON to stdout, Claude can invoke it, parse the results, and reason about your logs.
+Install the plugin — it ships the skill and handles the binary automatically:
 
-### Setup
-
-1. Create an env file with your Datadog credentials:
-
-```bash
-# ~/.config/dogfetch/env (or wherever you prefer)
-export DD_API_KEY=your_api_key
-export DD_APP_KEY=your_app_key
-export DD_SITE=datadoghq.com  # optional, defaults to datadoghq.com
+```
+/plugin marketplace add jtzemp/dogfetch
+/plugin install dogfetch@dogfetch
 ```
 
-2. Add a SKILL.md file to your project's `.claude/skills/` directory (or wherever your agent looks for tool definitions):
+The bundled skill ([skills/dogfetch/SKILL.md](skills/dogfetch/SKILL.md))
+teaches Claude Datadog query syntax and the token-cheap call order:
+`summary` (counts, no raw logs) → `patterns` (collapse repetitive logs) →
+`fetch --limit` (raw lines, projected fields). The wrapper script downloads
+a sha256-verified release binary on first use and caches it.
 
-```markdown
----
-name: datadog-logs
-description: Query and analyze Datadog logs
----
-
-## dogfetch CLI
-
-Query tool for Datadog logs.
-
-**Command pattern:**
-
-    bash -c 'source ~/.config/dogfetch/env && dogfetch --query "" --from "" --to "" --pageSize 5000'
-
-Use ISO 8601 timestamps (e.g., `2025-12-08T00:00:00Z`). 
-Get current time: `date -u +%Y-%m-%dT%H:%M:%SZ`
-
-## Query Syntax
-
-**Basic patterns:**
-- Filter by service: `service:api-gateway`
-- Filter by status: `status:error`
-- Wildcards: `service:*handler`
-- Combine: `service:web status:error "timeout"`
-- Exclude: `-service:test`
-
-**Common facets:**
-- `@http.status_code`, `@http.method`, `@http.url_details.path`
-- `@duration`
-- `@error.message`
-
-Your services may have custom facets. Check your Datadog log explorer for available fields.
-
-## Example Queries
-
-- All errors for a service: `service:my-api status:error`
-- HTTP 500s: `service:my-api @http.status_code:500`
-- Slow requests: `service:my-api @duration:>5000000000` (nanoseconds)
-- Exclude health checks: `service:my-api status:error -@http.url_details.path:/health`
-```
-
-### How it works
-
-When Claude needs to investigate logs, it can run dogfetch with an appropriate query. The NDJSON output is easy to parse, and Claude can iterate on queries to narrow down issues.
+The only manual step is Datadog credentials: put `DD_API_KEY` and
+`DD_APP_KEY` in `~/.config/dogfetch/env` (chmod 600) or export them; run
+`dogfetch auth` to check. Other agents can copy the same SKILL.md — it's
+plain markdown over a plain CLI.
 
 ## Contributing
 
@@ -365,21 +446,33 @@ Contributions welcome! Please open an issue or PR.
 
 Releases are automated using GitHub Actions and GoReleaser. To create a new release:
 
-1. **Create and push a tag:**
+1. **Bump the plugin version, commit, and tag — all in one step:**
    ```bash
-   git tag -a v1.0.0 -m "Release v1.0.0"
-   git push origin v1.0.0
+   make release-tag V=0.2.0
+   ```
+   This updates `.claude-plugin/plugin.json` `version` to `0.2.0`, commits
+   that change, and creates tag `v0.2.0` on top of it, so the version bump
+   and the tag point at the same commit. Requires a clean working tree.
+
+2. **Review, then push both:**
+   ```bash
+   git show
+   git push origin HEAD
+   git push origin v0.2.0
    ```
 
-2. **GitHub Actions will automatically:**
+3. **GitHub Actions will automatically:**
+   - Check the plugin version matches the tag and the wrapper script parses
    - Run all tests
    - Build binaries for Linux, macOS, and Windows (amd64 and arm64)
    - Create a GitHub release with:
      - Release notes from commits since last tag
      - Pre-built binaries
-     - Checksums for verification
+     - Checksums for verification (used by the plugin wrapper's sha256 check)
 
-3. **Manual release (optional):**
+   The release workflow only *validates* the tagged commit. You tag it. Goreleaser builds it if it matches.
+
+4. **Manual release (optional):**
    ```bash
    # Install goreleaser
    go install github.com/goreleaser/goreleaser@latest

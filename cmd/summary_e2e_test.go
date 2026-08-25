@@ -150,3 +150,62 @@ func TestE2ESummaryBadFormat(t *testing.T) {
 	assert.Equal(t, 2, code)
 	assert.Contains(t, out, "summary format must be 'toon' or 'json'")
 }
+
+// TestE2ESummaryRateLimitSurfacesError guards the retry path: 429s that
+// exhaust retries must produce a rate_limited error, not a false
+// "total: 0" (ruled out as the cause of the bug below, but worth
+// pinning down since it was the first suspect).
+func TestE2ESummaryRateLimitSurfacesError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"errors":["rate limited"]}`))
+	}))
+	defer srv.Close()
+	setupEnv(t, srv.URL)
+
+	out, code := runSummaryCapture(t, "--query", "service:web", "--from", "24h")
+	assert.Equal(t, 1, code)
+	assert.Contains(t, out, "(rate_limited)")
+	assert.NotContains(t, out, "total: 0")
+}
+
+// TestE2ESummaryMissingTotalBucket guards against the real bug: when
+// the Aggregate API response omits the __total__ bucket, Total must
+// fall back to the (untruncated) timeline sum, and real by_status data
+// must render rather than being discarded as a false empty state.
+func TestE2ESummaryMissingTotalBucket(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Compute []struct {
+				Type string `json:"type"`
+			} `json:"compute"`
+			GroupBy []struct {
+				Facet string `json:"facet"`
+			} `json:"group_by"`
+		}
+		_ = json.Unmarshal(body, &req)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case len(req.Compute) > 0 && req.Compute[0].Type == "timeseries":
+			_, _ = w.Write([]byte(`{"data":{"buckets":[{"computes":{"c0":[{"time":"2026-06-11T10:00:00.000Z","value":9421}]}}]}}`))
+		case len(req.GroupBy) > 0 && req.GroupBy[0].Facet == "status":
+			// No __total__ bucket in this response - only facet buckets.
+			_, _ = w.Write([]byte(`{"data":{"buckets":[
+				{"by":{"status":"error"},"computes":{"c0":8000}},
+				{"by":{"status":"warn"},"computes":{"c0":1421}}
+			]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"data":{"buckets":[{"by":{"service":"web"},"computes":{"c0":9421}}]}}`))
+		}
+	}))
+	defer srv.Close()
+	setupEnv(t, srv.URL)
+
+	out, code := runSummaryCapture(t, "--query", "service:nxserver", "--from", "24h")
+	assert.Equal(t, 0, code)
+	assert.Contains(t, out, "total: 9421")
+	assert.Contains(t, out, "error,8000")
+	assert.Contains(t, out, "warn,1421")
+}

@@ -86,7 +86,7 @@ func renderSummaryToon(s *fetcher.Summary, cfg *config.Config) int {
 		queryDisplay = "*"
 	}
 
-	if s.Total == 0 {
+	if s.IsEmpty() {
 		toon.EmptyState(enc, "total", "", queryDisplay, cfg.From, cfg.To)
 		return encStatus(enc)
 	}

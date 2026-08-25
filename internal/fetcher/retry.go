@@ -110,8 +110,9 @@ func ShouldRetry(attempt int, err *RetryableError) (bool, time.Duration) {
 }
 
 // FormatRetryError translates a failed request into a structured,
-// agent-actionable error.
-func FormatRetryError(err error, httpResp *http.Response) error {
+// agent-actionable error. site is the resolved DD_SITE, used to point
+// the auth-help links at the right org.
+func FormatRetryError(err error, httpResp *http.Response, site string) error {
 	if httpResp == nil {
 		return axierr.Runtime("network_error", fmt.Sprintf("network error: %v", err),
 			"Check connectivity and DD_SITE (current default: datadoghq.com)")
@@ -121,11 +122,11 @@ func FormatRetryError(err error, httpResp *http.Response) error {
 	case 401:
 		return axierr.Runtime("auth_failed",
 			"authentication failed: Datadog rejected DD_API_KEY/DD_APP_KEY (HTTP 401)",
-			axierr.AuthHelp()...)
+			axierr.AuthHelp(site)...)
 	case 403:
 		return axierr.Runtime("permission_denied",
 			"permission denied: the Application key lacks the logs_read_data permission (HTTP 403)",
-			axierr.AuthHelp()...)
+			axierr.AuthHelp(site)...)
 	case 429:
 		return axierr.Runtime("rate_limited",
 			"Datadog rate limit exceeded after retries",
@@ -143,6 +144,7 @@ func FormatRetryError(err error, httpResp *http.Response) error {
 func withRetry[T any](
 	ctx context.Context,
 	errOut io.Writer,
+	site string,
 	call func(context.Context) (T, *http.Response, error),
 ) (T, *http.Response, error) {
 	var resp T
@@ -159,7 +161,7 @@ func withRetry[T any](
 
 		shouldRetry, backoff := ShouldRetry(attempt, retryErr)
 		if !shouldRetry {
-			return resp, httpResp, FormatRetryError(err, httpResp)
+			return resp, httpResp, FormatRetryError(err, httpResp, site)
 		}
 
 		attempt++

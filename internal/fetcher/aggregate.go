@@ -93,7 +93,27 @@ func (a *Aggregator) Summarize(ctx context.Context) (*Summary, error) {
 	}
 	s.Timeline = timeseriesPoints(timeline)
 
+	// The facet request's __total__ bucket is the normal source of
+	// Total and isn't subject to facetLimit, but if the API ever omits
+	// it while still returning facet/timeline data, falling back to 0
+	// would report "no results" under renderSummaryToon despite data
+	// existing. The timeline query has no group_by, so summing it is
+	// an exact (not top-N-truncated) total across the same range.
+	if s.Total == 0 && len(s.Timeline) > 0 {
+		for _, p := range s.Timeline {
+			s.Total += p.Count
+		}
+	}
+
 	return s, nil
+}
+
+// IsEmpty reports whether the summary has no data at all: not just a
+// zero Total (which the facet total bucket, or its timeline fallback
+// above, might still fail to populate) but no facet or timeline rows
+// either.
+func (s *Summary) IsEmpty() bool {
+	return s.Total == 0 && len(s.ByStatus) == 0 && len(s.ByService) == 0 && len(s.Timeline) == 0
 }
 
 // filter builds the shared query filter over an already-resolved
@@ -151,7 +171,7 @@ func (a *Aggregator) timelineRequest(interval string, to time.Time) datadogV2.Lo
 // aggregateWithRetry runs one Aggregate API request under the shared
 // retry policy.
 func (a *Aggregator) aggregateWithRetry(ctx context.Context, req datadogV2.LogsAggregateRequest) (datadogV2.LogsAggregateResponse, error) {
-	resp, _, err := withRetry(ctx, a.errOut, func(ctx context.Context) (datadogV2.LogsAggregateResponse, *http.Response, error) {
+	resp, _, err := withRetry(ctx, a.errOut, a.config.Site, func(ctx context.Context) (datadogV2.LogsAggregateResponse, *http.Response, error) {
 		return a.client.GetAPI().AggregateLogs(a.client.GetContext(ctx), req)
 	})
 	return resp, err

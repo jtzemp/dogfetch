@@ -167,7 +167,7 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 
 // fetchPageWithRetry fetches a single page with retry logic
 func (f *Fetcher) fetchPageWithRetry(ctx context.Context, cursor string, pageSize int32) (datadogV2.LogsListResponse, *http.Response, error) {
-	return withRetry(ctx, f.errOut, func(ctx context.Context) (datadogV2.LogsListResponse, *http.Response, error) {
+	return withRetry(ctx, f.errOut, f.config.Site, func(ctx context.Context) (datadogV2.LogsListResponse, *http.Response, error) {
 		return f.fetchPage(ctx, cursor, pageSize)
 	})
 }

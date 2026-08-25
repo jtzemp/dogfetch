@@ -20,7 +20,7 @@ func runAuth() int {
 	}
 
 	if creds.APIKey == "" || creds.AppKey == "" {
-		enc.List("help", axierr.AuthSetupHelp())
+		enc.List("help", axierr.AuthSetupHelp(creds.Site))
 	} else {
 		enc.List("help", []string{
 			"dogfetch fetch --query 'service:web status:error' --from 2h --limit 100",

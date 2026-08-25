@@ -24,7 +24,7 @@ func TestRenderToon(t *testing.T) {
 func TestRenderJSON(t *testing.T) {
 	for _, format := range []string{"json", "ndjson"} {
 		var buf bytes.Buffer
-		Render(&buf, format, Runtime("auth_failed", "authentication failed", AuthHelp()...))
+		Render(&buf, format, Runtime("auth_failed", "authentication failed", AuthHelp("")...))
 		var obj map[string]map[string]any
 		if err := json.Unmarshal(buf.Bytes(), &obj); err != nil {
 			t.Fatalf("%s: invalid JSON: %v", format, err)
@@ -36,6 +36,36 @@ func TestRenderJSON(t *testing.T) {
 		if help, ok := e["help"].([]any); !ok || len(help) != 4 {
 			t.Errorf("%s: unexpected help: %v", format, e["help"])
 		}
+	}
+}
+
+func TestAuthHelpSiteAware(t *testing.T) {
+	tests := []struct {
+		name, site, wantHost string
+	}{
+		{"empty site defaults to US1", "", "app.datadoghq.com"},
+		{"us3", "us3.datadoghq.com", "app.us3.datadoghq.com"},
+		{"eu", "datadoghq.eu", "app.datadoghq.eu"},
+		{"gov", "ddog-gov.com", "app.ddog-gov.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, help := range [][]string{AuthHelp(tt.site), AuthSetupHelp(tt.site)} {
+				want := "https://" + tt.wantHost + "/organization-settings/api-keys"
+				found := false
+				for _, line := range help {
+					if strings.Contains(line, want) {
+						found = true
+					}
+					if strings.Contains(line, "app.datadoghq.com") && tt.wantHost != "app.datadoghq.com" {
+						t.Errorf("help leaked default-site host for site %q: %q", tt.site, line)
+					}
+				}
+				if !found {
+					t.Errorf("site %q: help missing %q, got %v", tt.site, want, help)
+				}
+			}
+		})
 	}
 }
 

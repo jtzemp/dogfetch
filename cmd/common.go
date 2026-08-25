@@ -113,7 +113,7 @@ func validateCredentials(cfg *config.Config) *axierr.Error {
 			"Set DD_SITE to a domain like datadoghq.com or datadoghq.eu")
 	}
 	if err := cfg.ValidateAuth(); err != nil {
-		return axierr.Runtime("auth_missing", err.Error(), axierr.AuthHelp()...)
+		return axierr.Runtime("auth_missing", err.Error(), axierr.AuthHelp(cfg.Site)...)
 	}
 	return nil
 }

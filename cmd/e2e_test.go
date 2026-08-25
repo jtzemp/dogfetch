@@ -72,8 +72,16 @@ func runFetchCapture(t *testing.T, args ...string) (string, int) {
 // developer's environment can't leak into assertions. The mock URL goes
 // through DOGFETCH_API_URL (the internal test seam), not DD_SITE, which
 // only accepts real Datadog domains.
+//
+// HOME/USERPROFILE are redirected to an empty temp dir: DD_SITE="" only
+// means "no site" if config.ResolveCredentials can't fall back to a
+// developer's real ~/.config/dogfetch/env, which os.UserHomeDir would
+// otherwise resolve straight through the test's overridden DD_SITE.
 func setupEnv(t *testing.T, serverURL string) {
 	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	t.Setenv("DD_API_KEY", "test-api-key")
 	t.Setenv("DD_APP_KEY", "test-app-key")
 	t.Setenv("DD_SITE", "")

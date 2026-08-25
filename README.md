@@ -111,7 +111,7 @@ export DD_APP_KEY=your_app_key
 Optionally, set your Datadog site if not using the default (datadoghq.com):
 
 ```bash
-export DD_SITE=datadoghq.eu
+export DD_SITE=us3.datadoghq.com
 ```
 
 ## Usage

@@ -49,26 +49,42 @@ func Runtime(code, message string, help ...string) *Error {
 	return &Error{Code: code, Message: message, Help: help, Exit: ExitError}
 }
 
-// authSteps are the credential setup steps both help blocks share.
-func authSteps() []string {
+// appHost returns the Datadog web app host for site: app.<site>, or
+// app.datadoghq.com when site is empty (the SDK default). Organization
+// settings live under this host, not the api.<site> host used for
+// requests, and it differs per site (app.us3.datadoghq.com,
+// app.datadoghq.eu, ...), so a hardcoded app.datadoghq.com link is wrong
+// for every non-default site.
+func appHost(site string) string {
+	if site == "" {
+		return "app.datadoghq.com"
+	}
+	return "app." + site
+}
+
+// authSteps are the credential setup steps both help blocks share. site
+// is the resolved DD_SITE (possibly empty), used to point key-creation
+// links at the right org.
+func authSteps(site string) []string {
+	host := appHost(site)
 	return []string{
-		"Create an API key at https://app.datadoghq.com/organization-settings/api-keys",
-		"Create an Application key at https://app.datadoghq.com/organization-settings/application-keys",
+		"Create an API key at https://" + host + "/organization-settings/api-keys",
+		"Create an Application key at https://" + host + "/organization-settings/application-keys",
 		"Export DD_API_KEY and DD_APP_KEY, or store them in ~/.config/dogfetch/env (KEY=VALUE lines, chmod 600)",
 	}
 }
 
 // AuthHelp is the remediation block for missing/rejected credentials,
 // for commands that are not themselves `dogfetch auth`.
-func AuthHelp() []string {
-	return append(authSteps(), "Run `dogfetch auth` to check credential status")
+func AuthHelp(site string) []string {
+	return append(authSteps(site), "Run `dogfetch auth` to check credential status")
 }
 
 // AuthSetupHelp is the block `dogfetch auth` itself shows: pointing a
 // reader back at the command they already ran helps nobody, so the
 // last step spells out the env-file format instead.
-func AuthSetupHelp() []string {
-	return append(authSteps(),
+func AuthSetupHelp(site string) []string {
+	return append(authSteps(site),
 		"Example ~/.config/dogfetch/env:  DD_API_KEY=<key>  DD_APP_KEY=<key>  DD_SITE=datadoghq.com  (one per line)")
 }
 

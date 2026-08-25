@@ -430,6 +430,36 @@ secondary case:
 - **Zero-setup path for agents** - the Claude Code plugin ships a skill teaching the call order plus a
   self-installing binary wrapper
 
+## Benchmarks
+
+A raw-fetch comparison against [the official Datadog MCP server](https://docs.datadoghq.com/mcp_server/setup/)
+'s
+`search_datadog_logs` tool, run against one real account's logs (not a synthetic fixture — see caveat below),
+same query and time window for every tool, tokens counted with OpenAI's `tiktoken` (`cl100k_base`) as a
+standard proxy tokenizer:
+
+| Source                                                         | Logs | Tokens | Tokens/log |
+|----------------------------------------------------------------|-----:|-------:|-----------:|
+| dogfetch, TOON (default fields)                                |  200 | 31,694 |      158.5 |
+| dogfetch, NDJSON (full objects)                                |  200 | 70,198 |      351.0 |
+| Datadog MCP `search_datadog_logs` (default, 5000-token budget) |   27 |  7,775 |      287.9 |
+| Datadog MCP `search_datadog_logs` (20000-token hard cap)       |  147 | 31,411 |      213.7 |
+
+dogfetch's TOON output returns all 200 logs for about the same token count the MCP tool spends at its hard cap
+to return 147 — and the MCP tool never reaches 200 logs in a single call regardless of budget; getting the
+rest means a second call with `start_at`. Per log, TOON is ~26% cheaper than the MCP tool's best case and
+~45% cheaper than its default. NDJSON is included as the lossless baseline — expected to cost more, useful as
+a sanity check (2.2x TOON, all else equal).
+
+**Caveat:** the MCP tool's own `max_tokens` parameter didn't match what `tiktoken` counted (asked for a
+5000-token budget, got 7,775 back) — its internal token accounting isn't `cl100k_base`. Count actual output
+yourself rather than trusting either tool's self-reported number. This was one run against one personal
+account's logs at one point in time, not a controlled fixture — rerun it on your own data before citing the
+numbers as general truth; the shape of your logs (message length, field count, repetition) will move these
+figures.
+
+See [docs/benchmarks.md](docs/benchmarks.md) for the exact steps to reproduce this against your own data.
+
 ## Architecture
 
 ### Design Goals

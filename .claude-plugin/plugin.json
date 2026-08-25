@@ -9,5 +9,10 @@
   "homepage": "https://github.com/jtzemp/dogfetch",
   "repository": "https://github.com/jtzemp/dogfetch",
   "license": "MIT",
-  "keywords": ["datadog", "logs", "observability", "debugging"]
+  "keywords": [
+    "datadog",
+    "logs",
+    "observability",
+    "debugging"
+  ]
 }

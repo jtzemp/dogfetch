@@ -1,8 +1,11 @@
 package fetcher
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 )
 
 func TestTimeseriesInterval(t *testing.T) {
@@ -37,6 +40,34 @@ func TestTimeseriesIntervalZeroTo(t *testing.T) {
 	got := timeseriesInterval(time.Now().Add(-24*time.Hour), time.Time{})
 	if got != "1h" {
 		t.Errorf("24h-to-now: got %s, want 1h", got)
+	}
+}
+
+// TestSplitFacetBucketsUppercaseTotal pins a real Datadog API behavior:
+// requesting the total bucket keyed "__total__" gets back a bucket
+// keyed "__TOTAL__" (uppercase). Regression for the bug where an
+// exact-case match let that bucket fall through into the facet list
+// (and Total stayed 0) instead of being extracted as the total.
+func TestSplitFacetBucketsUppercaseTotal(t *testing.T) {
+	var resp datadogV2.LogsAggregateResponse
+	body := `{"data":{"buckets":[
+		{"by":{"status":"__TOTAL__"},"computes":{"c0":234046,"c1":1}},
+		{"by":{"status":"info"},"computes":{"c0":234046}}
+	]}}`
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	counts, total, cardinality := splitFacetBuckets(resp, "status")
+
+	if total != 234046 {
+		t.Errorf("total = %d, want 234046", total)
+	}
+	if cardinality != 1 {
+		t.Errorf("cardinality = %d, want 1", cardinality)
+	}
+	if len(counts) != 1 || counts[0].Value != "info" || counts[0].Count != 234046 {
+		t.Errorf("counts = %+v, want [{info 234046}] (no __TOTAL__ row leaking through)", counts)
 	}
 }
 

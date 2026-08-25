@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
@@ -191,7 +192,7 @@ func splitFacetBuckets(resp datadogV2.LogsAggregateResponse, facet string) ([]Fa
 	for _, bucket := range data.GetBuckets() {
 		value, _ := bucket.GetBy()[facet].(string)
 		count := computeNumber(bucket, "c0")
-		if value == totalKey {
+		if strings.EqualFold(value, totalKey) {
 			total = count
 			cardinality = computeNumber(bucket, "c1")
 			continue

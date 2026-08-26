@@ -69,7 +69,7 @@ func openOut(output io.Writer, path string) (io.Writer, func() error, error) {
 	if output != nil {
 		return output, func() error { return nil }, nil
 	}
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, config.FileMode())
 	if err != nil {
 		return nil, nil, err
 	}

@@ -122,6 +122,41 @@ func TestParseRetryAfter(t *testing.T) {
 			header: "invalid",
 			want:   0,
 		},
+		{
+			// Thirty-one years. Honouring it hangs the CLI and any
+			// agent waiting on the CLI, so the header is discarded and
+			// the caller falls back to its own backoff.
+			name:   "absurd seconds discarded",
+			header: "1000000000",
+			want:   0,
+		},
+		{
+			name:   "just over the cap discarded",
+			header: "301",
+			want:   0,
+		},
+		{
+			name:   "at the cap honoured",
+			header: "300",
+			want:   5 * time.Minute,
+		},
+		{
+			// Would overflow time.Duration on the multiply and come
+			// back negative.
+			name:   "max int seconds discarded",
+			header: "9223372036854775807",
+			want:   0,
+		},
+		{
+			name:   "http-date in the past discarded",
+			header: "Mon, 02 Jan 2006 15:04:05 GMT",
+			want:   0,
+		},
+		{
+			name:   "far-future http-date discarded",
+			header: "Fri, 31 Dec 2100 23:59:59 GMT",
+			want:   0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -282,4 +317,21 @@ func TestFormatRetryError(t *testing.T) {
 			assert.Contains(t, got.Error(), tt.wantMsg)
 		})
 	}
+}
+
+func TestRateLimitFallsBackWhenRetryAfterIsAbsurd(t *testing.T) {
+	// Discarding the header must not mean waiting zero and hammering
+	// Datadog: a 429 still falls back to the rate-limit default.
+	resp := &http.Response{StatusCode: 429, Header: http.Header{}}
+	resp.Header.Set("Retry-After", "1000000000")
+
+	re := ClassifyError(errors.New("rate limited"), resp)
+	require.NotNil(t, re)
+	assert.True(t, re.Retryable)
+	assert.Equal(t, rateLimitWait, re.RetryAfter)
+
+	shouldRetry, backoff := ShouldRetry(0, re)
+	assert.True(t, shouldRetry)
+	assert.Equal(t, rateLimitWait, backoff)
+	assert.LessOrEqual(t, backoff, maxRetryAfter)
 }

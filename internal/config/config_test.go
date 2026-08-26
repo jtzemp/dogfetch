@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -306,5 +307,28 @@ func TestValidateSite(t *testing.T) {
 	}
 	for _, s := range invalid {
 		assert.Error(t, ValidateSite(s), "site %q should be rejected", s)
+	}
+}
+
+func TestFileMode(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want os.FileMode
+	}{
+		{"default is private", "", 0o600},
+		{"octal with leading zero", "0644", 0o644},
+		{"octal without leading zero", "640", 0o640},
+		{"0666 restores the umask default", "0666", 0o666},
+		{"non-octal falls back", "not-a-mode", 0o600},
+		{"out of range falls back", "99999999999", 0o600},
+		{"zero falls back", "0", 0o600},
+		{"setuid bits stripped", "4755", 0o755},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DOGFETCH_FILE_MODE", tt.env)
+			assert.Equal(t, tt.want, FileMode())
+		})
 	}
 }

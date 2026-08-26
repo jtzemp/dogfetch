@@ -86,6 +86,9 @@ func renderSummaryToon(s *fetcher.Summary, cfg *config.Config) int {
 		queryDisplay = "*"
 	}
 
+	// protect the agent from injection attacks by escaping the query string for display in help text
+	queryArg := toon.HelpArg(queryDisplay)
+
 	if s.IsEmpty() {
 		toon.EmptyState(enc, "total", "", queryDisplay, cfg.From, cfg.To)
 		return encStatus(enc)
@@ -102,11 +105,11 @@ func renderSummaryToon(s *fetcher.Summary, cfg *config.Config) int {
 	}
 	if s.ServiceCardinality > int64(len(s.ByService)) {
 		help = append(help, fmt.Sprintf("by_service shows top %d of %d services; narrow with --query '%s service:<name>'",
-			len(s.ByService), s.ServiceCardinality, queryDisplay))
+			len(s.ByService), s.ServiceCardinality, queryArg))
 	}
 	help = append(help,
-		fmt.Sprintf("Group repetitive logs: dogfetch patterns --query '%s status:<status>'", queryDisplay),
-		fmt.Sprintf("See raw logs: dogfetch fetch --query '%s status:<status>' --limit 50", queryDisplay))
+		fmt.Sprintf("Group repetitive logs: dogfetch patterns --query '%s status:<status>'", queryArg),
+		fmt.Sprintf("See raw logs: dogfetch fetch --query '%s status:<status>' --limit 50", queryArg))
 	enc.List("help", help)
 
 	return encStatus(enc)

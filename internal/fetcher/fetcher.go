@@ -10,6 +10,7 @@ import (
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 	"github.com/jtzemp/dogfetch/internal/config"
+	"github.com/jtzemp/dogfetch/internal/toon"
 	"github.com/jtzemp/dogfetch/internal/writer"
 )
 
@@ -82,7 +83,7 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
-			fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
+			fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", toon.HelpArg(cursor))
 			return result(cursor), finalize(cursor)
 		default:
 		}
@@ -102,7 +103,7 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 		resp, _, err := f.fetchPageWithRetry(ctx, cursor, pageSize)
 		if err != nil {
 			if ctx.Err() != nil {
-				fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", cursor)
+				fmt.Fprintf(f.errOut, "\nOperation cancelled. Resume with --cursor '%s'\n", toon.HelpArg(cursor))
 				return result(cursor), finalize(cursor)
 			}
 			return result(cursor), err
@@ -140,13 +141,13 @@ func (f *Fetcher) Fetch(ctx context.Context) (*Result, error) {
 		rate := float64(totalLogs) / elapsed.Seconds()
 		fmt.Fprintf(f.errOut, "Fetched %d logs (%d pages, %.1f logs/sec)", totalLogs, pageCount, rate)
 		if newCursor != "" {
-			fmt.Fprintf(f.errOut, " - cursor: %s", newCursor)
+			fmt.Fprintf(f.errOut, " - cursor: %s", toon.Line(newCursor))
 		}
 		fmt.Fprintf(f.errOut, "\n")
 
 		if limitHit {
 			if newCursor != "" {
-				fmt.Fprintf(f.errOut, "\nLimit of %d reached. More logs available. Resume with --cursor '%s'\n", f.config.Limit, newCursor)
+				fmt.Fprintf(f.errOut, "\nLimit of %d reached. More logs available. Resume with --cursor '%s'\n", f.config.Limit, toon.HelpArg(newCursor))
 			}
 			fmt.Fprintf(f.errOut, "\nCompleted! Fetched %d logs in %d pages (%.1fs)\n", totalLogs, pageCount, time.Since(startTime).Seconds())
 			return result(newCursor), finalize(newCursor)

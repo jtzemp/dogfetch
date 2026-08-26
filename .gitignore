@@ -8,8 +8,9 @@
 # Test binaries
 *.test
 
+# Ignore log exports, but don't ignore json files deeper in the tree that are part of the codebase.
 /*.json
-/*.ndjson
+*.ndjson
 
 # Local tool state
 .claude/settings.local.json

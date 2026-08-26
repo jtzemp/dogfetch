@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -170,4 +171,21 @@ func ParseTime(s string) (time.Time, error) {
 // DefaultFrom returns the default "from" time (24 hours)
 func DefaultFrom() time.Time {
 	return time.Now().Add(-24 * time.Hour)
+}
+
+// FileMode is the permission mode for files dogfetch writes. Exports
+// hold production log data, so they default to 0600 rather than the
+// process umask. DOGFETCH_FILE_MODE overrides it with an octal mode;
+// 0666 restores the umask default. An unparseable value falls back to
+// 0600.
+func FileMode() os.FileMode {
+	if v := os.Getenv("DOGFETCH_FILE_MODE"); v != "" {
+		if m, err := strconv.ParseUint(v, 8, 32); err == nil {
+			mode := os.FileMode(m) & 0o777
+			if mode != 0 {
+				return mode
+			}
+		}
+	}
+	return 0o600
 }

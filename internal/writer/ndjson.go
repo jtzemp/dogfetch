@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
+	"github.com/jtzemp/dogfetch/internal/config"
 	"github.com/jtzemp/dogfetch/internal/project"
 )
 
@@ -27,7 +28,7 @@ func NewNDJSONWriter(path string, append bool, proj *project.Projector) (*NDJSON
 		flags |= os.O_TRUNC
 	}
 
-	f, err := os.OpenFile(path, flags, 0644)
+	f, err := os.OpenFile(path, flags, config.FileMode())
 	if err != nil {
 		return nil, err
 	}

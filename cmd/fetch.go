@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jtzemp/dogfetch/internal/axierr"
+	"github.com/jtzemp/dogfetch/internal/config"
 	"github.com/jtzemp/dogfetch/internal/fetcher"
 	"github.com/jtzemp/dogfetch/internal/version"
 )
@@ -54,6 +55,7 @@ func runFetch(args []string) int {
 		fmt.Fprintf(os.Stderr, "  DOGFETCH_LIMIT     Default for --limit\n")
 		fmt.Fprintf(os.Stderr, "  DOGFETCH_PAGESIZE  Default for --pageSize\n")
 		fmt.Fprintf(os.Stderr, "  DOGFETCH_INDEX     Default for --index\n")
+		fmt.Fprintf(os.Stderr, "  DOGFETCH_FILE_MODE Octal mode for files written (default: 0600; 0666 uses your umask)\n")
 	}
 
 	if code, ok := parseFlags(fs, args, *format); !ok {
@@ -84,7 +86,7 @@ func runFetch(args []string) int {
 	// Setup error output
 	errOut := os.Stderr
 	if *errorsOut != "" {
-		f, err := os.OpenFile(*errorsOut, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		f, err := os.OpenFile(*errorsOut, os.O_CREATE|os.O_WRONLY|os.O_APPEND, config.FileMode())
 		if err != nil {
 			return fail(*format, axierr.Runtime("bad_errors_out",
 				fmt.Sprintf("failed to open --errors-out file: %v", err)))
@@ -97,6 +99,12 @@ func runFetch(args []string) int {
 	cfg, aerr := resolveQueryConfig(*query, *index, *from, *to, errOut)
 	if aerr != nil {
 		return fail(*format, aerr)
+	}
+
+	if *pageSize < 1 || *pageSize > 5000 {
+		return fail(*format, axierr.Usage(axierr.UsageCodeUsage,
+			fmt.Sprintf("pageSize must be between 1 and 5000, got %d", *pageSize),
+			"dogfetch fetch --query 'service:web' --pageSize 1000"))
 	}
 	cfg.PageSize = int32(*pageSize)
 	cfg.Limit = *limit

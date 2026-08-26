@@ -153,7 +153,8 @@ func renderPatternsToon(cfg *config.Config, result *fetcher.Result, all, shown [
 		help = append(help, fmt.Sprintf("Scanned the first %d matching logs; raise --limit to scan more", result.Total))
 	}
 	help = append(help,
-		fmt.Sprintf("Drill into one pattern: dogfetch fetch --query '%s \"<literal text from pattern>\"' --limit 20", queryDisplay))
+		fmt.Sprintf("Drill into one pattern: dogfetch fetch --query '%s \"<literal text from pattern>\"' --limit 20",
+			toon.HelpArg(queryDisplay)))
 	if !samples {
 		help = append(help, "Add --samples to include one raw example per pattern")
 	}

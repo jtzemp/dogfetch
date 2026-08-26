@@ -16,6 +16,9 @@ const (
 	maxRetries    = 3
 	baseBackoff   = 1 * time.Second
 	rateLimitWait = 60 * time.Second
+
+	// maxRetryAfter caps how long a Retry-After header can block us.
+	maxRetryAfter = 5 * time.Minute
 )
 
 // RetryableError wraps an error with retry information
@@ -75,15 +78,27 @@ func parseRetryAfter(resp *http.Response) time.Duration {
 
 	// Try parsing as seconds
 	if seconds, err := strconv.Atoi(header); err == nil {
-		return time.Duration(seconds) * time.Second
+		if seconds > int(maxRetryAfter/time.Second) {
+			return 0
+		}
+		return clampRetryAfter(time.Duration(seconds) * time.Second)
 	}
 
 	// Try parsing as HTTP date
 	if t, err := http.ParseTime(header); err == nil {
-		return time.Until(t)
+		return clampRetryAfter(time.Until(t))
 	}
 
 	return 0
+}
+
+// clampRetryAfter drops a wait that is negative (a date already past)
+// or longer than the cap.
+func clampRetryAfter(d time.Duration) time.Duration {
+	if d <= 0 || d > maxRetryAfter {
+		return 0
+	}
+	return d
 }
 
 // ExponentialBackoff calculates backoff duration

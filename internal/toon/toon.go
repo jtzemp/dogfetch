@@ -96,16 +96,72 @@ func StringRows(rows [][]string) [][]any {
 }
 
 // List writes an AXI-style help block: a `name[N]:` header followed by
-// one indented line per item. Items are emitted verbatim (they are
-// prose and command templates, not data cells).
+// one indented line per item. Items are prose and command templates
+// rather than data cells, so they are not quoted the way a Scalar or a
+// Table cell is - wrapping them would break the bare block format
+// agents are told to read. They are still passed through Line, because
+// one newline inside an item ends the line early and the rest of it
+// lands in the document as forged top-level keys.
 func (e *Encoder) List(name string, items []string) {
 	if len(items) == 0 {
 		return
 	}
 	e.printf("%s[%d]:\n", name, len(items))
 	for _, item := range items {
-		e.printf("%s%s\n", indent, item)
+		e.printf("%s%s\n", indent, Line(item))
 	}
+}
+
+// Line renders s as a single output line: every character that would
+// end the line or steer a terminal collapses to a space. It is the
+// last-resort guard on List; callers that interpolate a value into a
+// help line should use HelpArg, which also handles the shell quoting.
+func Line(s string) string {
+	if !strings.ContainsFunc(s, unsafeRune) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unsafeRune(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// HelpArg renders s for use inside a single-quoted argument of a
+// command in a help[] block, e.g. --query '<here>'. Such a command is
+// meant to be runnable, and an agent following AXI output is the one
+// running it, so an interpolated value has to survive two layers: it
+// must not end the TOON line (see Line), and it must not close the
+// shell quote. Single quotes are escaped the only way POSIX allows:
+// close, backslash-escape, reopen.
+func HelpArg(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case unsafeRune(r):
+			b.WriteByte(' ')
+		case r == '\'':
+			b.WriteString(`'\''`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// unsafeRune reports whether r must never reach the output raw. C0 and
+// C1 controls cover the line-ending characters and ESC, which a
+// terminal acts on rather than prints - a log message carrying ESC[2K
+// can erase output a human is reading as a result. The bidi overrides
+// reorder how a line renders without changing the bytes an agent
+// parses, so the two readers disagree about what the line says.
+func unsafeRune(r rune) bool {
+	return r < 0x20 || r == 0x7f ||
+		(r >= 0x80 && r <= 0x9f) ||
+		(r >= 0x202a && r <= 0x202e) ||
+		(r >= 0x2066 && r <= 0x2069)
 }
 
 // numberLike matches strings that would parse as a TOON number.
@@ -131,6 +187,10 @@ func Quote(s string) string {
 			case '\t':
 				b.WriteString(`\t`)
 			default:
+				if unsafeRune(r) {
+					fmt.Fprintf(&b, `\u%04x`, r)
+					continue
+				}
 				b.WriteRune(r)
 			}
 		}
@@ -165,7 +225,12 @@ func needsQuoting(s string) bool {
 	if strings.Contains(s, ": ") || strings.HasSuffix(s, ":") {
 		return true
 	}
-	return strings.ContainsAny(s, ",\"\n\r\t\\")
+	if strings.ContainsAny(s, ",\"\n\r\t\\") {
+		return true
+	}
+	// ESC and friends are not in that set but must still be escaped
+	// rather than handed to whatever renders this line.
+	return strings.ContainsFunc(s, unsafeRune)
 }
 
 // FormatRangeTime renders a query range bound. A zero time means the

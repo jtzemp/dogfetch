@@ -70,8 +70,10 @@ func (w *TOONWriter) Finalize(meta Meta) error {
 		"Add fields with --fields %s,host (any Datadog attribute path works, e.g. http.status_code)",
 		strings.Join(project.DefaultFields, ",")))
 	if meta.NextCursor != "" {
+		// The cursor is Datadog's own opaque token, not user input, but
+		// it is remote data being pasted into a command an agent runs.
 		help = append(help, fmt.Sprintf(
-			"More logs match; fetch the next page with --cursor '%s'", meta.NextCursor))
+			"More logs match; fetch the next page with --cursor '%s'", toon.HelpArg(meta.NextCursor)))
 	}
 	enc.List("help", help)
 	return enc.Err()

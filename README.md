@@ -140,6 +140,14 @@ Optionally, set your Datadog site if not using the default (datadoghq.com):
 export DD_SITE=us3.datadoghq.com
 ```
 
+Exported log files are created `0600`, since they hold production log
+data. To pick a different mode — to share an export with a group, or to
+fall back to your umask — set `DOGFETCH_FILE_MODE` to an octal mode:
+
+```bash
+export DOGFETCH_FILE_MODE=0644   # 0666 defers to your umask
+```
+
 ## Usage
 
 ### Commands

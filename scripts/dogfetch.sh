@@ -126,6 +126,22 @@ set_latest_tag() {
     printf '%s\n' "$TAG" >"$LATEST_CACHE"
 }
 
+# require_valid_version rejects a VERSION that could escape the cache
+# directory. VERSION becomes part of BIN, and install_version returns
+# early when BIN is already executable, so a traversing version execs a
+# planted binary with no download and no checksum. Covers all three
+# sources: DOGFETCH_VERSION, the pin file, and the cached tag.
+require_valid_version() {
+    case "$VERSION" in
+        '' | *[!0-9A-Za-z.+-]* | *..* | .* | -*)
+            fail "invalid version" \
+                "Versions look like 1.2.3" \
+                "Clear a bad pin: rm -f $PIN_FILE" \
+                "Or pick one explicitly: DOGFETCH_VERSION=0.3.1 $0 ..."
+            ;;
+    esac
+}
+
 # set_version sets VERSION (no leading v): env > pin file > latest.
 set_version() {
     if [ -n "${DOGFETCH_VERSION:-}" ]; then
@@ -143,6 +159,7 @@ set_version() {
 
 # install_version downloads, verifies, and caches $VERSION; sets BIN.
 install_version() {
+    require_valid_version
     BIN="$CACHE_DIR/$VERSION/dogfetch"
     if [ -x "$BIN" ]; then
         return

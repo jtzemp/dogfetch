@@ -86,7 +86,7 @@ func setupEnv(t *testing.T, serverURL string) {
 	t.Setenv("DD_APP_KEY", "test-app-key")
 	t.Setenv("DD_SITE", "")
 	t.Setenv("DOGFETCH_API_URL", serverURL)
-	for _, v := range []string{"DOGFETCH_FORMAT", "DOGFETCH_FIELDS", "DOGFETCH_LIMIT", "DOGFETCH_PAGESIZE", "DOGFETCH_INDEX"} {
+	for _, v := range []string{"DOGFETCH_FORMAT", "DOGFETCH_FIELDS", "DOGFETCH_LIMIT", "DOGFETCH_PAGESIZE", "DOGFETCH_INDEX", "DOGFETCH_FILE_MODE"} {
 		t.Setenv(v, "")
 	}
 }
